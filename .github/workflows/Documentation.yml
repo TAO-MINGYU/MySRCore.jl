@@ -1,0 +1,37 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - master
+      - release-*
+    paths:
+      - "src/**"
+      - "docs/**"
+      - "README.md"
+      - ".github/workflows/**"
+      - "examples/**"
+    tags: "*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@latest
+        with:
+          version: "1"
+      - name: "Cache dependencies"
+        uses: julia-actions/cache@v2
+      - name: Force use of updated Julia registry
+        run: |
+          rm -rf ~/.julia/registries/General
+          julia -e 'ENV["JULIA_PKG_SERVER"]=""; using Pkg; Pkg.update()'
+      - name: "Install dependencies"
+        run: julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+      - name: "Build and deploy"
+        env:
+          DOCUMENTER_KEY_ASTROAUTOMATA: ${{ secrets.DOCUMENTER_KEY }}
+          DOCUMENTER_KEY_CAM: ${{ secrets.DAMTP_DEPLOY_KEY }}
+        run: |
+          julia --project=docs/ docs/make.jl
