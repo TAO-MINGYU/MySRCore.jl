@@ -2,7 +2,7 @@ name: release-please
 
 on:
   push:
-    branches: [release-v1]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -14,17 +14,17 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: MilesCranmerBot/release-please
           ref: 911ad18bdc3bb52bfef564cfbcb35f31aac01df3
           path: release-please-src
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
@@ -43,7 +43,7 @@ jobs:
           node release-please-src/build/src/bin/release-please.js release-pr \
             --token "$GITHUB_TOKEN" \
             --repo-url "https://github.com/${{ github.repository }}" \
-            --target-branch release-v1 \
+            --target-branch master \
             --config-file release-please-config.json \
             --manifest-file .release-please-manifest.json
 
@@ -54,6 +54,6 @@ jobs:
           node release-please-src/build/src/bin/release-please.js github-release \
             --token "$GITHUB_TOKEN" \
             --repo-url "https://github.com/${{ github.repository }}" \
-            --target-branch release-v1 \
+            --target-branch master \
             --config-file release-please-config.json \
             --manifest-file .release-please-manifest.json

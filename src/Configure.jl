@@ -109,8 +109,9 @@ function test_dataset_configuration(
         )
     end
 
-    if size(dataset.X, 2) > 10000 && !options.batching && verbosity > 0
-        @info "Note: you are running with more than 10,000 datapoints. You should consider turning on batching (`options.batching`), and also if you need that many datapoints. Unless you have a large amount of noise (in which case you should smooth your dataset first), generally < 10,000 datapoints is enough to find a functional form."
+    if n > 50000 && verbosity > 0
+        @warn "You are using a dataset with more than 50,000 datapoints. Symbolic regression rarely benefits from this many points; consider subsampling to 10,000 points or fewer. If you have high noise, denoise the data first rather than using more points." maxlog =
+            1
     end
 
     if !(typeof(options.elementwise_loss) <: SupervisedLoss) &&
@@ -243,12 +244,10 @@ function activate_env_on_workers(
 )
     verbosity > 0 && @info "Activating environment on workers."
     @everywhere procs begin
-        Base.MainInclude.eval(
-            quote
-                using Pkg
-                Pkg.activate($$project_path)
-            end,
-        )
+        Base.MainInclude.eval(quote
+            using Pkg
+            Pkg.activate($$project_path)
+        end)
     end
 end
 
@@ -279,6 +278,7 @@ function import_module_on_workers(
         :ClusterManagers,
         :Enzyme,
         :LoopVectorization,
+        :Mooncake,
         :SymbolicUtils,
         :TensorBoardLogger,
         :Zygote,
@@ -290,12 +290,9 @@ function import_module_on_workers(
     all_extensions = vcat(relevant_extensions, @something(worker_imports, Symbol[]))
 
     for ext in all_extensions
-        push!(
-            expr.args,
-            quote
-                using $ext: $ext
-            end,
-        )
+        push!(expr.args, quote
+            using $ext: $ext
+        end)
     end
 
     verbosity > 0 && if isempty(relevant_extensions)
@@ -325,7 +322,12 @@ function test_module_on_workers(procs, options::AbstractOptions, verbosity)
 end
 
 function test_entire_pipeline(
-    procs, dataset::Dataset{T}, options::AbstractOptions, verbosity
+    procs,
+    dataset::Dataset{T},
+    options::AbstractOptions,
+    verbosity,
+    head_plugin_states::Tuple,
+    worker_plugin_states::Tuple,
 ) where {T<:DATA_TYPE}
     futures = []
     verbosity > 0 && @info "Testing entire pipeline on workers..."
@@ -339,19 +341,21 @@ function test_entire_pipeline(
                     nlength=3,
                     options=options,
                     nfeatures=max_features(dataset, options),
+                    plugin_states=head_plugin_states,
                 )
                 tmp_pop = s_r_cycle(
                     dataset,
                     tmp_pop,
                     5,
-                    5,
-                    RunningSearchStatistics(; options=options);
+                    5;
                     verbosity=verbosity,
                     options=options,
-                    record=RecordType(),
+                    trace=new_trace(options),
+                    # TODO: Use isolated states so this smoke test does not emit synthetic lifecycle events to shared plugin resources.
+                    plugin_states=worker_plugin_states,
                 )[1]
                 tmp_pop = optimize_and_simplify_population(
-                    dataset, tmp_pop, options, options.maxsize, RecordType()
+                    dataset, tmp_pop, options, options.maxsize, nothing
                 )
             end
         )
@@ -367,6 +371,7 @@ function configure_workers(;
     procs::Union{Vector{Int},Nothing},
     numprocs::Int,
     addprocs_function::Function,
+    worker_timeout::Float64,
     options::AbstractOptions,
     @nospecialize(worker_imports::Union{Vector{Symbol},Nothing}),
     project_path,
@@ -375,9 +380,13 @@ function configure_workers(;
     verbosity,
     example_dataset::Dataset,
     runtests::Bool,
+    test_head_plugin_states::Tuple,
+    test_worker_plugin_states::Tuple,
 )
     (procs, we_created_procs) = if procs === nothing
-        (addprocs_function(numprocs; lazy=false, exeflags), true)
+        withenv("JULIA_WORKER_TIMEOUT" => string(worker_timeout)) do
+            return (addprocs_function(numprocs; lazy=false, exeflags), true)
+        end
     else
         (procs, false)
     end
@@ -390,7 +399,14 @@ function configure_workers(;
 
     if runtests
         test_module_on_workers(procs, options, verbosity)
-        test_entire_pipeline(procs, example_dataset, options, verbosity)
+        test_entire_pipeline(
+            procs,
+            example_dataset,
+            options,
+            verbosity,
+            test_head_plugin_states,
+            test_worker_plugin_states,
+        )
     end
 
     return (procs, we_created_procs)

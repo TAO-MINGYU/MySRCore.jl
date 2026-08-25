@@ -6,12 +6,13 @@ using ..UtilsModule: split_string, AnnotatedIOBuffer, dump_buffer
 using ..CoreModule:
     AbstractOptions, Dataset, DATA_TYPE, LOSS_TYPE, relu, create_expression, init_value
 using ..ComplexityModule: compute_complexity
-using ..PopMemberModule: PopMember
+using ..CheckConstraintsModule: check_constraints
+using ..PopMemberModule: AbstractPopMember, PopMember
 using ..InterfaceDynamicExpressionsModule: format_dimensions, WILDCARD_UNIT_STRING
 using Printf: @sprintf
 
 """
-    HallOfFame{T<:DATA_TYPE,L<:LOSS_TYPE}
+    HallOfFame{T<:DATA_TYPE,L<:LOSS_TYPE,N<:AbstractExpression{T},PM<:AbstractPopMember{T,L,N}}
 
 List of the best members seen all time in `.members`, with `.members[c]` being
 the best member seen at complexity c. Including only the members which actually
@@ -19,15 +20,19 @@ have been set, you can run `.members[exists]`.
 
 # Fields
 
-- `members::Array{PopMember{T,L},1}`: List of the best members seen all time.
+- `members::Array{PM,1}`: List of the best members seen all time.
     These are ordered by complexity, with `.members[1]` the member with complexity 1.
 - `exists::Array{Bool,1}`: Whether the member at the given complexity has been set.
 """
-struct HallOfFame{T<:DATA_TYPE,L<:LOSS_TYPE,N<:AbstractExpression{T}}
-    members::Array{PopMember{T,L,N},1}
+struct HallOfFame{
+    T<:DATA_TYPE,L<:LOSS_TYPE,N<:AbstractExpression{T},PM<:AbstractPopMember{T,L,N}
+}
+    members::Array{PM,1}
     exists::Array{Bool,1} #Whether it has been set
 end
-function Base.show(io::IO, mime::MIME"text/plain", hof::HallOfFame{T,L,N}) where {T,L,N}
+function Base.show(
+    io::IO, mime::MIME"text/plain", hof::HallOfFame{T,L,N,PM}
+) where {T,L,N,PM}
     println(io, "HallOfFame{...}:")
     for i in eachindex(hof.members, hof.exists)
         s_member, s_exists = if hof.exists[i]
@@ -47,6 +52,9 @@ function Base.show(io::IO, mime::MIME"text/plain", hof::HallOfFame{T,L,N}) where
     end
     return nothing
 end
+function Base.eltype(::Union{HOF,Type{HOF}}) where {T,L,N,PM,HOF<:HallOfFame{T,L,N,PM}}
+    return PM
+end
 
 """
     HallOfFame(options::AbstractOptions, dataset::Dataset{T,L}) where {T<:DATA_TYPE,L<:LOSS_TYPE}
@@ -65,17 +73,36 @@ function HallOfFame(
     options::AbstractOptions, dataset::Dataset{T,L}
 ) where {T<:DATA_TYPE,L<:LOSS_TYPE}
     base_tree = create_expression(init_value(T), options, dataset)
+    PM = options.popmember_type
 
-    return HallOfFame{T,L,typeof(base_tree)}(
+    # Create a prototype member to get the concrete type
+    prototype = PM(
+        copy(base_tree),
+        L(0),
+        L(Inf),
+        options,
+        1;  # complexity
+        parent=-1,
+        deterministic=options.deterministic,
+    )
+
+    PMtype = typeof(prototype)
+
+    return HallOfFame{T,L,typeof(base_tree),PMtype}(
         [
-            PopMember(
-                copy(base_tree),
-                L(0),
-                L(Inf),
-                options;
-                parent=-1,
-                deterministic=options.deterministic,
-            ) for i in 1:(options.maxsize)
+            if i == 1
+                prototype
+            else
+                PM(
+                    copy(base_tree),
+                    L(0),
+                    L(Inf),
+                    options,
+                    1;  # complexity
+                    parent=-1,
+                    deterministic=options.deterministic,
+                )
+            end for i in 1:(options.maxsize)
         ],
         [false for i in 1:(options.maxsize)],
     )
@@ -87,14 +114,56 @@ function Base.copy(hof::HallOfFame)
     )
 end
 
+function update_hall_of_fame!(
+    hall_of_fame::HallOfFame, member::AbstractPopMember, options::AbstractOptions
+)
+    size = compute_complexity(member, options)
+    0 < size <= options.maxsize || return nothing
+    check_constraints(member.tree, options, options.maxsize, size) || return nothing
+    return _update_hall_of_fame_unchecked!(hall_of_fame, member, size)
+end
+
+function _update_hall_of_fame_unchecked!(
+    hall_of_fame::HallOfFame, member::AbstractPopMember, size::Int
+)
+    0 < size <= lastindex(hall_of_fame.exists) || return nothing
+    if !hall_of_fame.exists[size] || member.cost < hall_of_fame.members[size].cost
+        hall_of_fame.members[size] = copy(member)
+        hall_of_fame.exists[size] = true
+    end
+    return nothing
+end
+
+function _update_hall_of_fame_unchecked!(
+    hall_of_fame::HallOfFame,
+    members::AbstractVector{<:AbstractPopMember},
+    options::AbstractOptions,
+)
+    for member in members
+        size = compute_complexity(member, options)
+        _update_hall_of_fame_unchecked!(hall_of_fame, member, size)
+    end
+    return nothing
+end
+
+function update_hall_of_fame!(
+    hall_of_fame::HallOfFame,
+    members::AbstractVector{<:AbstractPopMember},
+    options::AbstractOptions,
+)
+    for member in members
+        update_hall_of_fame!(hall_of_fame, member, options)
+    end
+    return nothing
+end
+
 """
     calculate_pareto_frontier(hallOfFame::HallOfFame{T,L,P}) where {T<:DATA_TYPE,L<:LOSS_TYPE}
 """
-function calculate_pareto_frontier(hallOfFame::HallOfFame{T,L,N}) where {T,L,N}
+function calculate_pareto_frontier(hallOfFame::HallOfFame{T,L,N,PM}) where {T,L,N,PM}
     # TODO - remove dataset from args.
-    P = PopMember{T,L,N}
     # Dominating pareto curve - must be better than all simpler equations
-    dominating = P[]
+    dominating = PM[]
     for size in eachindex(hallOfFame.members)
         if !hallOfFame.exists[size]
             continue

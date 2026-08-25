@@ -26,19 +26,17 @@ using DynamicQuantities:
     dimension
 using LossFunctions: SupervisedLoss
 using ..InterfaceDynamicQuantitiesModule: get_dimensions_type
-using ..InterfaceDynamicExpressionsModule: InterfaceDynamicExpressionsModule as IDE
 using ..CoreModule:
     AbstractOptions,
     Options,
     Dataset,
-    AbstractMutationWeights,
     MutationWeights,
     LOSS_TYPE,
     ComplexityMapping,
     AbstractExpressionSpec,
-    ExpressionSpec,
-    get_expression_type
+    check_warm_start_compatibility
 using ..CoreModule.OptionsModule: DEFAULT_OPTIONS, OPTION_DESCRIPTIONS
+using ..PopMemberModule: default_popmember_type
 using ..ComplexityModule: compute_complexity
 using ..HallOfFameModule: HallOfFame, format_hall_of_fame
 using ..UtilsModule: subscriptify, @ignore
@@ -69,6 +67,7 @@ function modelexpr(
     parent_type::Symbol=:AbstractSymbolicRegressor;
     default_niterations=100,
 )
+    #! format: off
     struct_def =
         :(Base.@kwdef mutable struct $(model_name){D<:AbstractDimensions,L} <: $parent_type
             niterations::Int = $(default_niterations)
@@ -77,14 +76,17 @@ function modelexpr(
             procs::Union{Vector{Int},Nothing} = nothing
             addprocs_function::Union{Function,Nothing} = nothing
             heap_size_hint_in_bytes::Union{Integer,Nothing} = nothing
+            worker_timeout::Union{Real,Nothing} = nothing
             worker_imports::Union{Vector{Symbol},Nothing} = nothing
             logger::Union{AbstractSRLogger,Nothing} = nothing
             runtests::Bool = true
             run_id::Union{String,Nothing} = nothing
             loss_type::Type{L} = Nothing
+            guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing} = nothing
             selection_method::Function = choose_best
             dimensions_type::Type{D} = SymbolicDimensions{DEFAULT_DIM_BASE_TYPE}
         end)
+    #! format: on
     # TODO: store `procs` from initial run if parallelism is `:multiprocessing`
     fields = last(last(struct_def.args).args).args
 
@@ -173,7 +175,6 @@ Base.@kwdef struct SRFitResult{
     variable_names::Vector{String}
     y_variable_names::Union{Vector{String},Nothing}
     y_is_table::Bool
-    has_class::Bool
     X_units::XD
     y_units::YD
     types::TYPES
@@ -228,39 +229,15 @@ function MMI.update(
     y,
     w=nothing,
 )
-    options = old_fitresult === nothing ? get_options(m) : old_fitresult.options
-    return _update(m, verbosity, old_fitresult, old_cache, X, y, w, options, nothing)
+    options = get_options(m)
+    if !isnothing(old_fitresult)
+        check_warm_start_compatibility(old_fitresult.options, options)
+    end
+    return _update(m, verbosity, old_fitresult, old_cache, X, y, w, options)
 end
 function _update(
-    m,
-    verbosity,
-    old_fitresult::Union{SRFitResult,Nothing},
-    old_cache,
-    X,
-    y,
-    w,
-    options,
-    class,
+    m, verbosity, old_fitresult::Union{SRFitResult,Nothing}, old_cache, X, y, w, options
 )
-    if (
-        IDE.handles_class_column(m) &&
-        isnothing(class) &&
-        MMI.istable(X) &&
-        :class in MMI.schema(X).names
-    )
-        names_without_class = filter(!=(:class), MMI.schema(X).names)
-        new_X = MMI.selectcols(X, collect(names_without_class))
-        new_class = MMI.selectcols(X, :class)
-        return _update(
-            m, verbosity, old_fitresult, old_cache, new_X, y, w, options, new_class
-        )
-    end
-    if !isnothing(old_fitresult)
-        @assert(
-            old_fitresult.has_class == !isnothing(class),
-            "If the first fit used class, the second fit must also use class."
-        )
-    end
     # To speed up iterative fits, we cache the types:
     types = if isnothing(old_fitresult)
         SRFitResultTypes()
@@ -297,6 +274,7 @@ function _update(
         procs=m.procs,
         addprocs_function=m.addprocs_function,
         heap_size_hint_in_bytes=m.heap_size_hint_in_bytes,
+        worker_timeout=m.worker_timeout,
         worker_imports=m.worker_imports,
         runtests=m.runtests,
         saved_state=(old_fitresult === nothing ? nothing : old_fitresult.state),
@@ -306,8 +284,8 @@ function _update(
         X_units=X_units_clean,
         y_units=y_units_clean,
         verbosity=verbosity,
-        extra=isnothing(class) ? (;) : (; class),
         logger=m.logger,
+        guesses=m.guesses,
         # Help out with inference:
         v_dim_out=isa(m, AbstractSingletargetSRRegressor) ? Val(1) : Val(2),
     )
@@ -320,8 +298,7 @@ function _update(
         options=options,
         variable_names=variable_names,
         y_variable_names=y_variable_names,
-        y_is_table=MMI.istable(y),
-        has_class=(!isnothing(class)),
+        y_is_table=_istable(y),
         X_units=X_units_clean,
         y_units=y_units_clean,
         types=SRFitResultTypes(;
@@ -353,16 +330,97 @@ function clean_units(units::Vector)
     return units
 end
 
+# Native replacements for MMI's data utilities, which are stubs unless
+# MLJBase is loaded. Arrays and NamedTuple tables are handled here so the
+# interface works without MLJBase; other table types fall through to MMI.
+# Hooks extended by SymbolicRegressionTablesExt. Any third-party table type
+# (DataFrames, StructArrays, ...) comes from a package that itself depends
+# on Tables.jl, so the extension is guaranteed active whenever such an
+# object can exist.
+function _tables_istable end
+function _tables_colnames end
+function _tables_columns end
+function _tables_matrix end
+function _tables_table end
+
+is_extension_loaded(::Val) = false
+_has_tables_ext() = is_extension_loaded(Val(:Tables))
+
+function _istable(X::AbstractArray)
+    # Exotic array types (e.g. StructArrays) can still be Tables.jl tables.
+    _has_tables_ext() && return _tables_istable(X)
+    return false
+end
+_istable(::AbstractVector{<:NamedTuple}) = true  # row table
+_istable(X::NamedTuple) = all(Base.Fix2(isa, AbstractVector), values(X))
+function _istable(X)
+    _has_tables_ext() && return _tables_istable(X)
+    return MMI.istable(X)
+end
+
+_colnames(X::NamedTuple) = collect(keys(X))
+_colnames(X::AbstractVector{<:NamedTuple}) = collect(keys(first(X)))
+function _colnames(X)
+    _has_tables_ext() && return _tables_colnames(X)
+    return collect(MMI.schema(X).names)
+end
+
+# Materialize a table's columns once, so sources that can only be
+# traversed a single time survive the separate `_matrix`/`_colnames` calls.
+function _columns(X)
+    (X isa NamedTuple || X isa AbstractVector{<:NamedTuple}) && return X
+    _has_tables_ext() && return _tables_columns(X)
+    return X
+end
+
+function _matrix(X; transpose::Bool=false)
+    if X isa AbstractVector{<:NamedTuple}
+        # Fetch by name: rows may order their fields differently.
+        names = keys(first(X))
+        Xm_t = stack(row -> collect(map(Base.Fix1(getproperty, row), names)), X)  # features x rows
+        return transpose ? Xm_t : permutedims(Xm_t)
+    end
+    Xm = if X isa NamedTuple && _istable(X)
+        reduce(hcat, collect(values(X)))
+    elseif X isa AbstractVecOrMat && !_istable(X)
+        X
+    elseif _has_tables_ext()
+        return _tables_matrix(X; transpose)
+    else
+        return MMI.matrix(X; transpose)
+    end
+    return transpose ? permutedims(Xm) : Xm
+end
+
+function _table(out_matrix::AbstractMatrix; names, prototype)
+    syms = Tuple(Symbol.(names))
+    if prototype isa NamedTuple
+        return NamedTuple{syms}(Tuple(collect(col) for col in eachcol(out_matrix)))
+    elseif _has_tables_ext()
+        # Mirrors MLJBase's `table` exactly (MatrixTable when `prototype` is
+        # `nothing`, else the prototype's materializer).
+        return _tables_table(out_matrix; names, prototype)
+    elseif prototype === nothing
+        return NamedTuple{syms}(Tuple(collect(col) for col in eachcol(out_matrix)))
+    elseif prototype isa AbstractVector{<:NamedTuple}
+        return [NamedTuple{syms}(Tuple(row)) for row in eachrow(out_matrix)]
+    else
+        return MMI.table(out_matrix; names, prototype)
+    end
+end
+
 function get_matrix_and_info(X, ::Type{D}) where {D}
-    sch = MMI.istable(X) ? MMI.schema(X) : nothing
-    Xm_t = MMI.matrix(X; transpose=true)
-    colnames, display_colnames = if sch === nothing
+    is_table = _istable(X)
+    X = is_table ? _columns(X) : X
+    Xm_t = _matrix(X; transpose=true)
+    colnames, display_colnames = if !is_table
         (
             ["x$(i)" for i in eachindex(axes(Xm_t, 1))],
             ["x$(subscriptify(i))" for i in eachindex(axes(Xm_t, 1))],
         )
     else
-        ([string(name) for name in sch.names], [string(name) for name in sch.names])
+        names = [string(name) for name in _colnames(X)]
+        (names, copy(names))
     end
     D_promoted = get_dimensions_type(Xm_t, D)
     Xm_t_strip, X_units = unwrap_units_single(Xm_t, D_promoted)
@@ -371,7 +429,7 @@ end
 
 function format_input_for(::AbstractSingletargetSRRegressor, y, ::Type{D}) where {D}
     @assert(
-        !(MMI.istable(y) || (length(size(y)) == 2 && size(y, 2) > 1)),
+        !(_istable(y) || (length(size(y)) == 2 && size(y, 2) > 1)),
         "For multi-output regression, please use `MultitargetSRRegressor`."
     )
     y_t = vec(y)
@@ -382,7 +440,7 @@ function format_input_for(::AbstractSingletargetSRRegressor, y, ::Type{D}) where
 end
 function format_input_for(::AbstractMultitargetSRRegressor, y, ::Type{D}) where {D}
     @assert(
-        MMI.istable(y) || (length(size(y)) == 2 && size(y, 2) > 1),
+        _istable(y) || (length(size(y)) == 2 && size(y, 2) > 1),
         "For single-output regression, please use `SRRegressor`."
     )
     out = get_matrix_and_info(y, D)
@@ -401,14 +459,6 @@ function validate_units(X_units, old_X_units)
         "Units of new data do not match units of fitted regressor."
     )
     return nothing
-end
-
-function IDE.handles_class_column(m::AbstractSymbolicRegressor)
-    expression_type = @something(
-        m.expression_type,
-        get_expression_type(@something(m.expression_spec, ExpressionSpec()))
-    )
-    return IDE.handles_class_column(expression_type)
 end
 
 # TODO: Test whether this conversion poses any issues in data normalization...
@@ -457,7 +507,7 @@ function prediction_fallback(
     if !fitresult.y_is_table
         return out_matrix
     else
-        return MMI.table(out_matrix; names=fitresult.y_variable_names, prototype=prototype)
+        return _table(out_matrix; names=fitresult.y_variable_names, prototype)
     end
 end
 
@@ -497,18 +547,13 @@ end
 function eval_tree_mlj(
     tree::AbstractExpression,
     X_t,
-    class,
     m::AbstractSymbolicRegressor,
     ::Type{T},
     fitresult,
     i,
     prototype,
 ) where {T}
-    out, completed = if isnothing(class)
-        eval_tree_array(tree, X_t, fitresult.options)
-    else
-        eval_tree_array(tree, X_t, class, fitresult.options)
-    end
+    out, completed = eval_tree_array(tree, X_t, fitresult.options)
     if completed
         return wrap_units(out, fitresult.y_units, i)
     else
@@ -517,38 +562,21 @@ function eval_tree_mlj(
 end
 
 function MMI.predict(
-    m::M, fitresult, Xnew; idx=nothing, class=nothing
+    m::M, fitresult, Xnew; idx=nothing
 ) where {M<:AbstractSymbolicRegressor}
-    return _predict(m, fitresult, Xnew, idx, class)
+    return _predict(m, fitresult, Xnew, idx)
 end
-function _predict(m::M, fitresult, Xnew, idx, class) where {M<:AbstractSymbolicRegressor}
+function _predict(m::M, fitresult, Xnew, idx) where {M<:AbstractSymbolicRegressor}
     if Xnew isa NamedTuple && (haskey(Xnew, :idx) || haskey(Xnew, :data))
         @assert(
             haskey(Xnew, :idx) && haskey(Xnew, :data) && length(keys(Xnew)) == 2,
             "If specifying an equation index during prediction, you must use a named tuple with keys `idx` and `data`."
         )
-        return _predict(m, fitresult, Xnew.data, Xnew.idx, class)
-    end
-    if (
-        IDE.handles_class_column(m) &&
-        isnothing(class) &&
-        MMI.istable(Xnew) &&
-        :class in MMI.schema(Xnew).names
-    )
-        names_without_class = filter(!=(:class), MMI.schema(Xnew).names)
-        Xnew2 = MMI.selectcols(Xnew, collect(names_without_class))
-        class = MMI.selectcols(Xnew, :class)
-        return _predict(m, fitresult, Xnew2, idx, class)
-    end
-
-    if fitresult.has_class
-        @assert(
-            !isnothing(class), "Classes must be specified if the model was fit with class."
-        )
+        return _predict(m, fitresult, Xnew.data, Xnew.idx)
     end
 
     params = full_report(m, fitresult; v_with_strings=Val(false))
-    prototype = MMI.istable(Xnew) ? Xnew : nothing
+    prototype = _istable(Xnew) ? Xnew : nothing
     Xnew_t, variable_names, _, X_units = get_matrix_and_info(Xnew, m.dimensions_type)
     T = promote_type(eltype(Xnew_t), fitresult.types.T)
 
@@ -565,29 +593,115 @@ function _predict(m::M, fitresult, Xnew, idx, class) where {M<:AbstractSymbolicR
 
     if M <: AbstractSingletargetSRRegressor
         return eval_tree_mlj(
-            params.equations[_idx], Xnew_t, class, m, T, fitresult, nothing, prototype
+            params.equations[_idx], Xnew_t, m, T, fitresult, nothing, prototype
         )
     elseif M <: AbstractMultitargetSRRegressor
         outs = [
             eval_tree_mlj(
-                params.equations[i][_idx[i]], Xnew_t, class, m, T, fitresult, i, prototype
+                params.equations[i][_idx[i]], Xnew_t, m, T, fitresult, i, prototype
             ) for i in eachindex(_idx, params.equations)
         ]
         out_matrix = reduce(hcat, outs)
         if !fitresult.y_is_table
             return out_matrix
         else
-            return MMI.table(out_matrix; names=fitresult.y_variable_names, prototype)
+            return _table(out_matrix; names=fitresult.y_variable_names, prototype)
         end
     end
+end
+
+"""
+    Machine
+
+Minimal MLJ-free machine for `AbstractSymbolicRegressor` models. Construct
+with [`machine`](@ref), then call [`fit!`](@ref), [`predict`](@ref), and
+[`report`](@ref). For pipelines, tuning, and general table support, use the
+MLJ interface instead (identical model structs; load MLJ or MLJBase).
+"""
+mutable struct Machine{M<:AbstractSymbolicRegressor,A<:Tuple}
+    const model::M
+    const args::A
+    fitresult::Union{SRFitResult,Nothing}
+    cache::Any
+    report::Any
+end
+
+"""
+    machine(model::AbstractSymbolicRegressor, X, y, w=nothing)
+
+Lightweight MLJ-free equivalent of MLJ's `machine`. Supports `AbstractMatrix`
+(rows are observations) and `NamedTuple`-of-vectors inputs without MLJBase
+loaded; other Tables.jl tables require importing MLJBase. Not exported: use
+`using SymbolicRegression: machine, fit!, predict, report`.
+"""
+function machine(model::AbstractSymbolicRegressor, X, y, w=nothing)
+    args = w === nothing ? (X, y) : (X, y, w)
+    return Machine(model, args, nothing, nothing, nothing)
+end
+
+"""
+    fit!(mach::Machine; verbosity=1, force=false)
+
+Run the search. On an already-fitted machine, warm-starts from the stored
+search state (like MLJ's `fit!` after increasing `niterations`). Pass
+`force=true` to discard the stored state and fit from scratch, which is
+required after changing options that are incompatible with warm starts.
+Returns `mach`.
+"""
+function fit!(mach::Machine; verbosity::Integer=1, force::Bool=false)
+    X, y = mach.args[1], mach.args[2]
+    w = length(mach.args) == 3 ? mach.args[3] : nothing
+    (fitresult, cache, rep) = if force || mach.fitresult === nothing
+        MMI.fit(mach.model, verbosity, X, y, w)
+    else
+        MMI.update(mach.model, verbosity, mach.fitresult, mach.cache, X, y, w)
+    end
+    mach.fitresult = fitresult
+    mach.cache = cache
+    mach.report = rep
+    return mach
+end
+
+"""
+    predict(mach::Machine, [Xnew])
+
+Predict with the best expression (per `model.selection_method`). With no
+`Xnew`, predicts on the training data.
+"""
+function predict(mach::Machine, Xnew)
+    _check_fitted(mach, "predict")
+    return MMI.predict(mach.model, mach.fitresult, Xnew)
+end
+predict(mach::Machine) = predict(mach, mach.args[1])
+
+"""
+    report(mach::Machine)
+
+The search report `NamedTuple` (`equations`, `equation_strings`, `losses`,
+`complexities`, `best_idx`, ...), identical to MLJ's `report(mach)`.
+"""
+function report(mach::Machine)
+    _check_fitted(mach, "report")
+    return mach.report
+end
+
+function _check_fitted(mach::Machine, f::String)
+    if mach.fitresult === nothing
+        throw(
+            ArgumentError(
+                "This machine has not been fitted. Call `fit!(mach)` before `$f`."
+            ),
+        )
+    end
+    return nothing
 end
 
 function get_equation_strings_for(
     ::AbstractSingletargetSRRegressor, trees, options, variable_names
 )
-    return (
-        t -> string_tree(t, options; variable_names=variable_names, pretty=false)
-    ).(trees)
+    return (t -> string_tree(t, options; variable_names=variable_names, pretty=false)).(
+        trees
+    )
 end
 function get_equation_strings_for(
     ::AbstractMultitargetSRRegressor, trees, options, variable_names
@@ -907,8 +1021,12 @@ eval(
         replace(
             """
     Multi-target Symbolic Regression regressor (`MultitargetSRRegressor`)
-    conducts several searches for expressions that predict each target variable
-    from a set of input variables. All data is assumed to be `Continuous`.
+    searches for expressions that predict each target variable from a set
+    of input variables. This simply runs independent [`SRRegressor`](@ref)
+    searches for each target column in parallel - there is no joint modeling
+    of targets. All configuration options work identically to `SRRegressor`.
+
+    All data is assumed to be `Continuous`.
     The search is performed using an evolutionary algorithm.
     This algorithm is described in the paper
     https://arxiv.org/abs/2305.01582.

@@ -2,7 +2,7 @@
 
 ```julia
 using SymbolicRegression
-using MLJ
+using SymbolicRegression: machine, fit!, predict, report
 ```
 
 ## 1. Simple search
@@ -60,7 +60,7 @@ println(r.equations[r.best_idx])
 
 Here, we do the same thing, but with multiple expressions at once,
 each requiring a different feature. This means that we need to use
-`MultitargetSRRegressor` instead of `SRRegressor`:
+[`MultitargetSRRegressor`](@ref) instead of [`SRRegressor`](@ref):
 
 ```julia
 X = 2rand(1000, 5) .+ 0.1
@@ -85,7 +85,7 @@ end
 ## 4. Plotting an expression
 
 For now, let's consider the expressions for output 1 from the previous example:
-We can get a SymbolicUtils version with:
+We can get a SymbolicUtils version with [`node_to_symbolic`](@ref):
 
 ```julia
 using SymbolicUtils
@@ -134,8 +134,7 @@ println(typeof(best))
 # Expression{Float32,Node{Float32},...}
 ```
 
-We can also use `Complex` numbers (ignore the warning
-from MLJ):
+We can also use `Complex` numbers:
 
 ```julia
 cos_re(x::Complex{T}) where {T} = cos(abs(x)) + 0im
@@ -178,7 +177,7 @@ F = @. (G * M * m / r^2)
 (Note that the `u` macro from `DynamicQuantities` will automatically convert to SI units. To avoid this,
 use the `us` macro.)
 
-Now, let's ready the data for MLJ:
+Now, let's put the data in a named-column format:
 
 ```julia
 X = (; M=M, m=m, r=r)
@@ -279,7 +278,7 @@ First, let's set up our basic configuration:
 ```julia
 using SymbolicRegression
 using Random: rand, MersenneTwister
-using MLJBase: machine, fit!, report
+using SymbolicRegression: machine, fit!, report
 ```
 
 The key part is defining our template structure. This determines how different parts of the expression combine:
@@ -380,8 +379,8 @@ You can track the progress of symbolic regression searches using TensorBoard or 
 
 ```julia
 using SymbolicRegression
+using SymbolicRegression: machine, fit!, report
 using TensorBoardLogger
-using MLJ
 
 logger = SRLogger(TBLogger("logs/sr_run"))
 
@@ -440,7 +439,7 @@ end
 We can now set up the model to find the symbolic expression for the integral:
 
 ```julia
-using MLJ
+using SymbolicRegression: machine, fit!, report
 
 model = SRRegressor(
     binary_operators=(+, -, *, /),
@@ -467,7 +466,113 @@ println("Learned expression: ", best_expr)
 
 If successful, the result should simplify to something like $\frac{\sqrt{x^2 - 1}}{x}$, which is the integral of the target function.
 
-## 11. Additional features
+## 11. Seeding search with initial guesses
+
+You can also provide initial guesses for the search.
+In this example, let's look for the following function:
+
+```math
+\sin(x_1 x_2 + 0.1) + \cos(x_3) x_4 + \frac{x_5}{x_6^2 + 1}
+```
+
+```julia
+using SymbolicRegression
+using SymbolicRegression: machine, fit!, predict, report
+
+X = randn(Float32, 6, 2048)
+y = @. sin(X[1, :] * X[2, :] + 0.1f0) + cos(X[3, :]) * X[4, :] + X[5, :] / (X[6, :] * X[6, :] + 1)
+```
+
+This expression is quite complex. Now, say that we know most of
+the structure, but want to further optimize it. We can provide
+a guess for the search:
+
+```julia
+model = SRRegressor(
+    binary_operators=[+, -, *, /],
+    unary_operators=[sin, cos],
+    maxsize=35,
+    niterations=35,
+    guesses=["sin(x1 * x2) + cos(x3) * x4 + x5 / (x6 * x6 + 0.9)", #= can provide additional guesses here =#],
+    batching=true,
+    batch_size=32,
+)
+
+mach = machine(model, X', y)
+fit!(mach)
+```
+
+If everything goes well, it should optimize the `0.9` to `1.0`,
+and also discover the `+ 0.1` term inside the sinusoid, whereas
+this might have been difficult to discover as fast from the normal search.
+
+You can also provide multiple guesses. For a template expression,
+your guesses should be an array of named tuples, such as
+`(; f="cos(#1) + 0.1", g="sin(#2) - 0.9")`.
+
+## 12. Higher-arity operators
+
+You can use operators with more than 2 arguments by passing an `OperatorEnum` explicitly.
+This operator allows you to declare arbitrary arities by passing them in a `arity => (op1, op2, ...)` format.
+
+Here's an example using a ternary conditional operator:
+
+```julia
+using SymbolicRegression
+using SymbolicRegression: machine, fit!, predict, report
+
+scalar_ifelse(a, b, c) = a > 0 ? b : c
+
+X = randn(3, 100)
+y = [X[1, i] > 0 ? 2*X[2, i] : X[3, i] for i in 1:100]
+
+model = SRRegressor(
+    operators=OperatorEnum(
+        1 => (),
+        2 => (+, -, *, /),
+        3 => (scalar_ifelse,)
+    ),
+    niterations=35,
+)
+mach = machine(model, X', y)
+fit!(mach)
+```
+
+This sort of piecewise logic might be difficult to express with only binary operators.
+
+## 13. Configuring mutation weights
+
+You can adjust how often each type of mutation is applied during the search.
+Pass `mutations` with a list of mutation types and their relative weights.
+An entry replaces the default weight for that mutation type; anything
+you don't list keeps its default.
+
+For example, to enable constant optimization (off by default) and increase
+the rate of constant perturbation:
+
+```julia
+using SymbolicRegression
+using SymbolicRegression: machine, fit!, report
+
+X = 2randn(100, 5)
+y = @. 2.7182 * X[:, 1] + 3.1415 * X[:, 2]
+
+model = SRRegressor(
+    binary_operators=[+, -, *],
+    mutations=[
+        OptimizeMutation() => 0.1,
+        ConstantMutation() => 0.5,
+    ],
+    niterations=30,
+)
+mach = machine(model, X, y)
+fit!(mach)
+```
+
+See the [`Options`](@ref) documentation for all available mutation types
+and their default weights.
+
+## 14. Additional features
 
 For the many other features available in SymbolicRegression.jl,
 check out the API page for `Options`. You might also find it useful

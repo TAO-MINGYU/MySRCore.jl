@@ -7,7 +7,7 @@
         pack_scalar_constants!,
         unpack_scalar_constants
     using Optim: Optim
-    using Random: default_rng, seed!
+    using Random: default_rng
     using SymbolicRegression: Dataset, Options, PopMember
     using SymbolicRegression.ConstantOptimizationModule: _optimize_constants
 
@@ -42,7 +42,6 @@
     end
 
     rng = default_rng()
-    seed!(rng, 0)
 
     n = 16
     X = fill(Vec2(0.0, 0.0), 1, n)
@@ -83,10 +82,66 @@
     optimizer_options = Optim.Options(; iterations=200)
 
     new_member, _ = _optimize_constants(
-        dataset, member, options, algorithm, optimizer_options
+        dataset, member, options, algorithm, optimizer_options, rng
     )
 
     c = get_tree(new_member.tree).val::Vec2
     @test abs(c.x - target.x) < 1e-3
     @test abs(c.y - target.y) < 1e-3
+end
+
+@testitem "Constant mutation for discrete custom values" begin
+    using DynamicExpressions: Expression, GenericOperatorEnum, get_tree
+    using DynamicExpressions.NodeModule: Node
+    import DynamicExpressions.ValueInterfaceModule: count_scalar_constants
+    using Random: AbstractRNG
+    using SymbolicRegression
+    using SymbolicRegression: Dataset, TraceType
+    using SymbolicRegression.MutateModule: next_generation
+
+    struct DiscreteValue
+        value::Int
+    end
+
+    combine(a::DiscreteValue, b::DiscreteValue) = DiscreteValue(a.value + b.value)
+    count_scalar_constants(::DiscreteValue) = 0
+
+    seen_mutation = Ref{Union{Nothing,ConstantMutation}}(nothing)
+    function SymbolicRegression.mutate_value(
+        ::AbstractRNG, value::DiscreteValue, _, mutation::ConstantMutation
+    )
+        seen_mutation[] = mutation
+        return DiscreteValue(value.value + 1)
+    end
+
+    mutation = ConstantMutation(; perturbation_factor=0.2, probability_negate=0.3)
+    options = Options(;
+        binary_operators=(combine,),
+        unary_operators=(),
+        operator_enum_constructor=GenericOperatorEnum,
+        elementwise_loss=(prediction, target) -> Float64(prediction.value != target.value),
+        default_mutations=(),
+        mutations=(mutation => 1.0,),
+        default_plugins=(),
+        deterministic=true,
+    )
+    dataset = Dataset(fill(DiscreteValue(1), 1, 4), fill(DiscreteValue(3), 4), Float64)
+    tree = Node{DiscreteValue}(;
+        op=1,
+        children=(
+            Node{DiscreteValue}(; feature=1), Node{DiscreteValue}(; val=DiscreteValue(1))
+        ),
+    )
+    expression = Expression(tree; operators=options.operators, variable_names=["x"])
+    member = PopMember(dataset, expression, options; deterministic=true)
+    plugin_states = SymbolicRegression.init_plugin_states(options, dataset)
+
+    new_member, _, _ = next_generation(
+        dataset, member, options.maxsize, options; tmp_trace=TraceType(), plugin_states
+    )
+
+    @test seen_mutation[] == mutation
+    @test only(
+        node.val for node in get_tree(new_member.tree) if node.degree == 0 && node.constant
+    ) == DiscreteValue(2)
 end

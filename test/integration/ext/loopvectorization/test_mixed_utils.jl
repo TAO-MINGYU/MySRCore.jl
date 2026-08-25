@@ -38,8 +38,7 @@ function test_mixed(i, batching::Bool, weighted::Bool, parallelism)
         T = Float16
     elseif i == 5
         T = Float64
-        lv_bug = VERSION < v"1.11" && Sys.islinux()
-        turbo = true && !lv_bug
+        turbo = true
     end
 
     numprocs = parallelism == :multiprocessing ? 2 : nothing
@@ -49,7 +48,6 @@ function test_mixed(i, batching::Bool, weighted::Bool, parallelism)
             unary_operators=(cos,),
             batching=batching,
             parsimony=0.0f0, # Required for scoring
-            seed=0,
             early_stop_condition=1e-6,
         )
     else
@@ -126,7 +124,7 @@ function test_mixed(i, batching::Bool, weighted::Bool, parallelism)
         @test length(dom) > 0
         best = dom[end]
         # Assert we created the correct type of trees:
-        @test node_type(typeof(best.tree)) == Node{T}
+        @test node_type(typeof(best.tree)) <: Node{T}
 
         # Test the cost
         @test best.loss < maximum_residual

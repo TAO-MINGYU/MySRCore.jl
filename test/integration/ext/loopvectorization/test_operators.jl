@@ -1,4 +1,4 @@
-@testitem "Generic operator tests" tags = [:part2] begin
+@testitem "Generic operator tests" begin
     using SymbolicRegression
     using SymbolicRegression:
         plus,
@@ -75,7 +75,7 @@
     end
 end
 
-@testitem "Built-in operators pass validation" tags = [:part3] begin
+@testitem "Built-in operators pass validation" begin
     using SymbolicRegression
     using SymbolicRegression: plus, sub, mult, square, cube, neg, relu, greater, less
     using SymbolicRegression: greater_equal, less_equal, logical_or, logical_and, cond
@@ -134,16 +134,16 @@ end
         @test_nowarn SymbolicRegression.assert_operators_well_defined(T, options)
     end
 
-    using SymbolicRegression.CoreModule.OptionsModule: inverse_binopmap
+    using SymbolicRegression.CoreModule.OptionsModule: inverse_opmap
 
     # Test inverse mapping for comparison operators
-    @test inverse_binopmap(greater) == (>)
-    @test inverse_binopmap(less) == (<)
-    @test inverse_binopmap(greater_equal) == (>=)
-    @test inverse_binopmap(less_equal) == (<=)
+    @test inverse_opmap(greater) == (>)
+    @test inverse_opmap(less) == (<)
+    @test inverse_opmap(greater_equal) == (>=)
+    @test inverse_opmap(less_equal) == (<=)
 end
 
-@testitem "Built-in operators pass validation for complex numbers" tags = [:part2] begin
+@testitem "Built-in operators pass validation for complex numbers" begin
     using SymbolicRegression
     using SymbolicRegression: plus, sub, mult, square, cube, neg
 
@@ -157,7 +157,7 @@ end
     end
 end
 
-@testitem "Incompatibilities are caught" tags = [:part3] begin
+@testitem "Incompatibilities are caught" begin
     using SymbolicRegression
     using SymbolicRegression: greater
 
@@ -170,7 +170,7 @@ end
     )
 end
 
-@testitem "Operators with wrong type fail" tags = [:part2] begin
+@testitem "Operators with wrong type fail" begin
     using SymbolicRegression
 
     my_bad_op(x) = 1.0f0
@@ -184,7 +184,7 @@ end
     @test_nowarn SymbolicRegression.assert_operators_well_defined(Float32, options)
 end
 
-@testitem "Turbo mode matches regular mode" tags = [:part2] begin
+@testitem "Turbo mode matches regular mode" begin
     using SymbolicRegression
     using SymbolicRegression:
         Node,
@@ -214,10 +214,8 @@ end
         completed || return nothing
         # We capture any warnings about the LoopVectorization not working
         local y_turbo
-        lv_bug = VERSION < v"1.11" && Sys.islinux()
-        turbo = true && !lv_bug
         eval_warnings = @capture_err begin
-            y_turbo, _ = eval_tree_array(tree, Xpart, options; turbo=turbo)
+            y_turbo, _ = eval_tree_array(tree, Xpart, options; turbo=true)
         end
         test_info(@test(y ≈ y_turbo && eval_warnings == "")) do
             @info T tree X[:, seed] y y_turbo eval_warnings
@@ -241,7 +239,7 @@ end
     end
 end
 
-@testitem "Safe operators are compatible with ForwardDiff" tags = [:part2] begin
+@testitem "Safe operators are compatible with ForwardDiff" begin
     using SymbolicRegression
     using SymbolicRegression:
         safe_log,
@@ -298,4 +296,30 @@ end
         @test iszero(ForwardDiff.derivative(x -> safe_pow(-x, 0.5), 1.0))
         @test zero_or_nonfinite(ForwardDiff.derivative(x -> safe_pow(x, -0.5), 0.0))  # 0^(-0.5)
     end
+end
+
+@testitem "user_provided_operators applies safe operator mappings" begin
+    using SymbolicRegression
+    using SymbolicRegression: safe_log, safe_pow, safe_sqrt
+    using DynamicExpressions: OperatorEnum
+
+    # Test that when user_provided_operators=true, operators get mapped through opmap
+    # This was a bug where user-provided operators weren't being mapped to safe versions
+
+    # Create operators with regular (potentially unsafe) functions
+    operators = OperatorEnum(
+        1 => (log, sqrt),  # Should become safe_log, safe_sqrt
+        2 => (+, -, (^)),   # ^ should become safe_pow
+    )
+
+    # Create options with user_provided_operators=true
+    options = Options(; operators)
+
+    # Verify that the operators were mapped to their safe versions
+    @test options.operators.ops[1] == (safe_log, safe_sqrt)
+    @test options.operators.ops[2] == (+, -, safe_pow)
+
+    # Also test accessing via convenience properties
+    @test options.operators.unaops == (safe_log, safe_sqrt)
+    @test options.operators.binops == (+, -, safe_pow)
 end

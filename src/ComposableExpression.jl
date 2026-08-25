@@ -8,7 +8,7 @@ using DynamicExpressions:
     AbstractExpressionNode,
     AbstractOperatorEnum,
     Metadata,
-    EvalOptions,
+    EvalContext,
     constructorof,
     get_metadata,
     eval_tree_array,
@@ -22,6 +22,7 @@ using DynamicExpressions.ValueInterfaceModule: is_valid_array
 
 using ..ConstantOptimizationModule: ConstantOptimizationModule as CO
 using ..CoreModule: get_safe_op
+using ..InterfaceDynamicExpressionsModule: _process_eval_options
 
 abstract type AbstractComposableExpression{T,N} <: AbstractExpression{T,N} end
 
@@ -53,8 +54,8 @@ struct ComposableExpression{
     T,
     N<:AbstractExpressionNode{T},
     D<:@NamedTuple{
-        operators::O, variable_names::V, eval_options::E
-    } where {O<:AbstractOperatorEnum,V,E<:Union{Nothing,EvalOptions}},
+        operators::O, variable_names::V, eval_context::E
+    } where {O<:AbstractOperatorEnum,V,E<:Union{Nothing,EvalContext}},
 } <: AbstractComposableExpression{T,N}
     tree::N
     metadata::Metadata{D}
@@ -64,9 +65,20 @@ end
     tree::AbstractExpressionNode{T};
     operators::Union{AbstractOperatorEnum,Nothing}=nothing,
     variable_names::Union{AbstractVector{<:AbstractString},Nothing}=nothing,
-    eval_options::Union{Nothing,EvalOptions}=nothing,
+    eval_context::Union{Nothing,EvalContext}=nothing,
+    kws...,
 ) where {T}
-    d = (; operators, variable_names, eval_options)
+    all(Base.Fix2(===, :eval_options), keys(kws)) ||
+        throw(ArgumentError("Invalid keyword argument(s): $(keys(kws))"))
+    eval_context = _process_eval_options(eval_context, kws, :ComposableExpression)
+    if eval_context !== nothing && eval_context.buffer !== nothing
+        throw(
+            ArgumentError(
+                "ComposableExpression metadata cannot contain an evaluation buffer."
+            ),
+        )
+    end
+    d = (; operators, variable_names, eval_context)
     return ComposableExpression(tree, Metadata(d))
 end
 
@@ -95,8 +107,8 @@ function DE.set_scalar_constants!(ex::AbstractComposableExpression, constants, r
     return DE.set_scalar_constants!(DE.get_contents(ex), constants, refs)
 end
 
-function Base.copy(ex::AbstractComposableExpression)
-    return ComposableExpression(copy(ex.tree), copy(ex.metadata))
+function Base.copy(ex::ComposableExpression)
+    return ComposableExpression(copy(DE.get_contents(ex)), copy(DE.get_metadata(ex)))
 end
 
 function Base.convert(::Type{E}, ex::AbstractComposableExpression) where {E<:Expression}
@@ -116,23 +128,24 @@ end
 function DE.count_scalar_constants(ex::AbstractComposableExpression)
     return DE.count_scalar_constants(convert(Expression, ex))
 end
-function CO.count_constants_for_optimization(ex::AbstractComposableExpression)
-    return CO.count_constants_for_optimization(convert(Expression, ex))
+function CO.get_optimizable_parameters(ex::ComposableExpression, _options)
+    return DE.get_scalar_constants(ex)
+end
+function CO.set_optimizable_parameters!(ex::ComposableExpression, x, refs)
+    return DE.set_scalar_constants!(ex, x, refs)
+end
+function CO.extract_optimizable_gradient(grad, ex::ComposableExpression, _refs)
+    return DE.extract_gradient(grad, ex)
 end
 
-struct PreallocatedComposableExpression{N}
-    tree::N
-end
 function DE.allocate_container(
     prototype::ComposableExpression, n::Union{Nothing,Integer}=nothing
 )
-    return PreallocatedComposableExpression(
-        DE.allocate_container(get_contents(prototype), n)
-    )
+    return (; tree=DE.allocate_container(get_contents(prototype), n))
 end
-function DE.copy_into!(dest::PreallocatedComposableExpression, src::ComposableExpression)
+function DE.copy_into!(dest::NamedTuple, src::ComposableExpression)
     new_tree = DE.copy_into!(dest.tree, get_contents(src))
-    return DE.with_contents(src, new_tree)
+    return with_contents(src, new_tree)
 end
 
 @implements(
@@ -164,8 +177,8 @@ struct ValidVector{A<:AbstractVector}
 end
 ValidVector(x::Tuple{Vararg{Any,2}}) = ValidVector(x...)
 
-function get_eval_options(ex::AbstractComposableExpression)
-    return @something(get_metadata(ex).eval_options, EvalOptions())
+function get_eval_context(ex::AbstractComposableExpression)
+    return @something(get_metadata(ex).eval_context, EvalContext())
 end
 function (ex::AbstractComposableExpression)(x)
     return error("ComposableExpression does not support input of type $(typeof(x))")
@@ -187,22 +200,47 @@ function (ex::AbstractComposableExpression)(
         return x .* nan
     end
 end
+# Method for all-Number arguments (scalars)
+function (ex::AbstractComposableExpression)(x::Number, _xs::Vararg{Number,N}) where {N}
+    xs = (x, _xs...)
+
+    vectors = ntuple(i -> ValidVector([float(xs[i])], true), length(xs))
+    return only(_get_value(ex(vectors...)))
+end
+
 function (ex::AbstractComposableExpression)(
-    x::ValidVector, _xs::Vararg{ValidVector,N}
+    x::Union{ValidVector,Number}, _xs::Vararg{Union{ValidVector,Number},N}
 ) where {N}
     xs = (x, _xs...)
-    valid = all(_is_valid, xs)
-    if !valid
-        return ValidVector(_get_value(first(xs)), false)
+    sample_vector =
+        let first_valid_vector_idx = findfirst(arg -> arg isa ValidVector, xs)::Int
+            xs[first_valid_vector_idx]::ValidVector
+        end
+
+    # Convert Numbers to ValidVectors based on first ValidVector's size
+    valid_args = ntuple(length(xs)) do i
+        arg = xs[i]
+        if arg isa ValidVector
+            arg
+        else
+            # Convert Number to ValidVector with repeated values
+            filled_array = similar(sample_vector.x)
+            fill!(filled_array, arg)
+            ValidVector(filled_array, true)
+        end
+    end
+
+    if all(_is_valid, valid_args)
+        X = stack(map(_get_value, valid_args); dims=1)
+        eval_context = get_eval_context(ex)
+        return ValidVector(eval_tree_array(ex, X; eval_context=eval_context))
     else
-        X = Matrix(stack(map(_get_value, xs))')
-        eval_options = get_eval_options(ex)
-        return ValidVector(eval_tree_array(ex, X; eval_options))
+        return ValidVector(_get_value(first(valid_args)), false)
     end
 end
 function (ex::AbstractComposableExpression{T})() where {T}
     X = Matrix{T}(undef, 0, 1)  # Value is irrelevant as it won't be used
-    # TODO: We force avoid the eval_options here,
+    # TODO: We force avoid the eval_context here,
     #       to get a faster constant evaluation result...
     #       but not sure if this is a good idea.
     out, complete = eval_tree_array(ex, X)  # TODO: The valid is not used; not sure how to incorporate
@@ -235,22 +273,107 @@ end
 # Basically we want to vectorize every single operation on ValidVector,
 # so that the user can use it easily.
 
+function _apply_operator_values(op::F, vx::Vararg{Any,N}) where {F<:Function,N}
+    safe_op = get_safe_op(op)
+    result = safe_op.(vx...)
+    return ValidVector(result, is_valid_array(result))
+end
+
+function _apply_operator(op::F, x::Vararg{Any,N}) where {F<:Function,N}
+    vx = map(_get_value, x)
+    return _apply_operator_values(op, vx...)
+end
+
+function _apply_operator(op::F, x::ValidVector, y::Number) where {F<:Function}
+    return _apply_operator_values(op, x.x, y)
+end
+
+function _apply_operator(op::F, x::Number, y::ValidVector) where {F<:Function}
+    return _apply_operator_values(op, x, y.x)
+end
+
 function apply_operator(op::F, x::Vararg{Any,N}) where {F<:Function,N}
     if all(_is_valid, x)
-        vx = map(_get_value, x)
-        safe_op = get_safe_op(op)
-        result = safe_op.(vx...)
-        return ValidVector(result, is_valid_array(result))
+        return _apply_operator(op, x...)
     else
-        example_vector =
-            something(map(xi -> xi isa ValidVector ? xi : nothing, x)...)::ValidVector
-        return ValidVector(_get_value(example_vector), false)
+        example_vector = something(
+            map(xi -> xi isa ValidVector ? xi : nothing, x)...
+        )::ValidVector
+        expected_return_type = Base.promote_op(
+            _apply_operator, typeof(op), map(typeof, x)...
+        )
+        if expected_return_type !== Union{} &&
+            expected_return_type <: ValidVector{<:AbstractArray}
+            return ValidVector(
+                _match_eltype(expected_return_type, example_vector.x), false
+            )::expected_return_type
+        else
+            return ValidVector(example_vector.x, false)
+        end
     end
 end
 _is_valid(x::ValidVector) = x.valid
 _is_valid(x) = true
 _get_value(x::ValidVector) = x.x
 _get_value(x) = x
+function _match_eltype(
+    ::Type{<:ValidVector{<:AbstractArray{T1}}}, x::AbstractArray{T2}
+) where {T1,T2}
+    if T1 == T2
+        return x
+    else
+        return Base.Fix1(convert, T1).(x)
+    end
+end
+
+struct ValidVectorMixError <: Exception end
+struct ValidVectorAccessError <: Exception end
+
+function Base.showerror(io::IO, ::ValidVectorMixError)
+    return print(
+        io,
+        """
+ValidVectorMixError: Cannot mix ValidVector with regular Vector.
+
+ValidVector handles validity checks, auto-vectorization, and batching in template expressions.
+The .valid field tracks whether any upstream computation failed (false = failed, true = valid).
+
+Wrap your vectors in ValidVector:
+
+    ```julia
+    valid_ar1 = ValidVector(ar1, all(isfinite, ar1))
+    valid_ar1 + valid_ar2
+    ```
+
+Alternatively, you can access the vector from a ValidVector with `my_validvector.x`,
+but you must be sure to propagate the `.valid` field. For example:
+
+    ```julia
+    out = ar1 .+ valid_ar2.x
+    ValidVector(out, all(isfinite, out) && valid_ar2.valid)
+    ```
+
+""",
+    )
+end
+
+function Base.showerror(io::IO, ::ValidVectorAccessError)
+    return print(
+        io,
+        """
+ValidVectorAccessError: ValidVector doesn't support direct array operations.
+
+Use .x for data and .valid for validity:
+
+    ```julia
+    valid_ar.x[1]        # indexing
+    length(valid_ar.x)   # length
+    valid_ar.valid       # check validity (false = any upstream computation failed)
+    ```
+
+ValidVector handles validity/batching automatically in template expressions.""",
+    )
+end
 
 #! format: off
 # First, binary operators:
@@ -264,6 +387,9 @@ for op in (
         Base.$(op)(x::ValidVector, y::ValidVector) = apply_operator(Base.$(op), x, y)
         Base.$(op)(x::ValidVector, y::Number) = apply_operator(Base.$(op), x, y)
         Base.$(op)(x::Number, y::ValidVector) = apply_operator(Base.$(op), x, y)
+
+        Base.$(op)(::ValidVector, ::AbstractVector) = throw(ValidVectorMixError())
+        Base.$(op)(::AbstractVector, ::ValidVector) = throw(ValidVectorMixError())
     end
 end
 function Base.literal_pow(::typeof(^), x::ValidVector, ::Val{p}) where {p}
@@ -271,7 +397,7 @@ function Base.literal_pow(::typeof(^), x::ValidVector, ::Val{p}) where {p}
 end
 
 for op in (
-    :sin, :cos, :tan, :sinh, :cosh, :tanh, :asin, :acos,
+    :sin, :cos, :tan, :sinh, :cosh, :tanh, :asin, :acos, :atan,
     :asinh, :acosh, :atanh, :sec, :csc, :cot, :asec, :acsc, :acot, :sech, :csch,
     :coth, :asech, :acsch, :acoth, :sinc, :cosc, :cosd, :cotd, :cscd, :secd,
     :sinpi, :cospi, :sind, :tand, :acosd, :acotd, :acscd, :asecd, :asind,
@@ -285,5 +411,13 @@ for op in (
     @eval Base.$(op)(x::ValidVector) = apply_operator(Base.$(op), x)
 end
 #! format: on
+
+Base.length(::ValidVector) = throw(ValidVectorAccessError())
+Base.push!(::ValidVector, ::Any) = throw(ValidVectorAccessError())
+for op in (:getindex, :size, :append!, :setindex!)
+    @eval Base.$(op)(::ValidVector, ::Any...) = throw(ValidVectorAccessError())
+end
+
+# TODO: Support for 3-ary operators
 
 end

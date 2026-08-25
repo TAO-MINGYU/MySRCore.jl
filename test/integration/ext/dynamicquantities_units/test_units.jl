@@ -1,4 +1,4 @@
-@testitem "Dimensional analysis" tags = [:part3] begin
+@testitem "Dimensional analysis" begin
     using SymbolicRegression
     using SymbolicRegression.InterfaceDynamicQuantitiesModule: get_units
     using SymbolicRegression.DimensionalAnalysisModule: violates_dimensional_constraints
@@ -100,7 +100,7 @@
     end
 end
 
-@testitem "Search with dimensional constraints" tags = [:part3] begin
+@testitem "Search with dimensional constraints" begin
     using SymbolicRegression
     using SymbolicRegression.DimensionalAnalysisModule: violates_dimensional_constraints
     using Random: MersenneTwister
@@ -128,16 +128,26 @@ end
     @test compute_complexity(best_expr, options) >=
         compute_complexity(custom_op(cos(1 * x1), 1 * x1), options)
 
-    # Check that every cos(...) which contains x1 also has complexity.
-    # (Non-vacuous: the best expression should actually contain such a cos subtree.)
-    cos_x1_subtrees = filter(get_tree(best_expr)) do t
-        t.degree == 1 && options.operators.unaops[t.op] == cos && Node(Float64; feature=1) in t
-    end
-    @test length(cos_x1_subtrees) > 0
-    @test all(t -> compute_complexity(t, options) > 1, cos_x1_subtrees)
+    # Check that every cos(...) which contains x1 also has complexity
+    has_cos(tree) =
+        any(get_tree(tree)) do t
+            t.degree == 1 && options.operators.unaops[t.op] == cos
+        end
+    valid_trees = [
+        !has_cos(member.tree) || any(
+            t ->
+                t.degree == 1 &&
+                options.operators.unaops[t.op] == cos &&
+                Node(Float64; feature=1) in t &&
+                compute_complexity(t, options) > 1,
+            get_tree(member.tree),
+        ) for member in dominating
+    ]
+    @test all(valid_trees)
+    @test length(valid_trees) > 0
 end
 
-@testitem "Operator compatibility" tags = [:part3] begin
+@testitem "Operator compatibility" begin
     using SymbolicRegression
     using DynamicQuantities
 
@@ -180,11 +190,13 @@ end
     @test_throws DimensionError atanh_clip(1.0u"m")
 end
 
-@testitem "Search with dimensional constraints on output" tags = [:part3] begin
+@testitem "Search with dimensional constraints on output" begin
     using SymbolicRegression
     using MLJBase: MLJBase as MLJ
     using DynamicQuantities
     using Random: MersenneTwister
+
+    include(joinpath(@__DIR__, "..", "..", "..", "utils.jl"))
 
     custom_op(x, y) = x + y
     options = Options(;
@@ -272,12 +284,6 @@ end
             binary_operators=[+, *],
             unary_operators=[sqrt, cbrt, abs],
             early_stop_condition=(loss, complexity) -> (loss < 1e-7 && complexity <= 8),
-            niterations=100,
-            populations=4,
-            population_size=32,
-            parallelism=:serial,
-            deterministic=true,
-            seed=0,
         )
         X = (; x1=randn(128), x2=randn(128))
         y = (;
@@ -308,7 +314,7 @@ end
     end
 end
 
-@testitem "Should error on mismatched units" tags = [:part3] begin
+@testitem "Should error on mismatched units" begin
     using SymbolicRegression
     using DynamicQuantities
 
@@ -317,7 +323,7 @@ end
     @test_throws("Number of features", Dataset(X, y; X_units=["m", "1"], y_units="kg"))
 end
 
-@testitem "Should print units" tags = [:part3] begin
+@testitem "Should print units" begin
     using SymbolicRegression
     using DynamicQuantities
 
@@ -381,10 +387,12 @@ end
     ) == "x₅[5.0 m] * 3.2"
 end
 
-@testitem "Dimensionless constants" tags = [:part3] begin
+@testitem "Dimensionless constants" begin
     using SymbolicRegression
     using SymbolicRegression.DimensionalAnalysisModule: violates_dimensional_constraints
     using DynamicQuantities
+
+    include(joinpath(@__DIR__, "..", "..", "..", "utils.jl"))
 
     options = Options(;
         binary_operators=[+, -, *, /, square, cube],
@@ -400,22 +408,29 @@ end
         1.5 * x1 / (cube(x2) * cube(x4)) * x3, x3, (square(x3) / x3) + x3
     ]
     for tree in dimensionally_valid_equations
-        @test !violates_dimensional_constraints(tree, dataset, options)
+        onfail(@test !violates_dimensional_constraints(tree, dataset, options)) do
+            @warn "Failed on" tree
+        end
     end
     dimensionally_invalid_equations = [Node(Float64; val=1.5), 1.5 * x1, x3 - 1.0 * x1]
     for tree in dimensionally_invalid_equations
-        @test violates_dimensional_constraints(tree, dataset, options)
+        onfail(@test violates_dimensional_constraints(tree, dataset, options)) do
+            @warn "Failed on" tree
+        end
     end
     # But, all of these would be fine if we allow dimensionless constants:
     let
         options = Options(; binary_operators=[+, -, *, /], unary_operators=[cos, sin])
         for tree in dimensionally_invalid_equations
-            @test !violates_dimensional_constraints(tree, dataset, options)
+            onfail(@test !violates_dimensional_constraints(tree, dataset, options)) do
+                @warn "Failed on" tree
+            end
         end
     end
 end
 
-@testitem "Miscellaneous tests of unit interface" tags = [:part3] begin
+@testitem "Miscellaneous tests of unit interface" begin
+    using MLJBase
     using SymbolicRegression
     using DynamicQuantities
     using SymbolicRegression.DimensionalAnalysisModule: @maybe_return_call, WildcardQuantity

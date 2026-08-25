@@ -12,7 +12,7 @@ Let's actually try this. Let's evolve an _expression over strings_.
 First, we mock up a dataset. Say that we wish to find the expression
 
 ```math
-y = \text{zip}(
+y = \text{interleave}(
     \text{concat}(x_1, \text{concat}(\text{``abc''}, x_2)),
     \text{concat}(
         \text{concat}(\text{tail}(x_3), \text{reverse}(x_4)),
@@ -26,7 +26,7 @@ We will define some unary and binary operators on strings:
 
 using SymbolicRegression
 using DynamicExpressions: GenericOperatorEnum
-using MLJBase: machine, fit!, report, MLJBase
+using SymbolicRegression: machine, fit!, report
 using Random
 
 """Returns the first half of the string."""
@@ -39,7 +39,7 @@ tail(s::String) = length(s) == 0 ? "" : join(collect(s)[max(1, div(length(s), 2)
 concat(a::String, b::String) = a * b
 
 """Interleaves characters from two strings."""
-function zip(a::String, b::String)
+function interleave(a::String, b::String)
     total_length = length(a) + length(b)
     result = Vector{Char}(undef, total_length)
     i_a = firstindex(a)
@@ -71,7 +71,7 @@ function single_instance(rng=Random.default_rng())
     x_4 = join(rand(rng, 'a':'z', rand(rng, 1:10)))
 
     ## True formula:
-    y = zip(x_1 * "abc" * x_2, tail(x_3) * reverse(x_4) * "xyz")
+    y = interleave(x_1 * "abc" * x_2, tail(x_3) * reverse(x_4) * "xyz")
     return (; X=(; x_1, x_2, x_3, x_4), y)
 end
 
@@ -80,7 +80,7 @@ dataset = let rng = Random.MersenneTwister(0)
 end
 
 #=
-We'll get them in the right format for MLJ:
+We'll separate the features and targets:
 =#
 
 X = [d.X for d in dataset]
@@ -141,8 +141,9 @@ Finally, the most complicated overload for `String` is `mutate_value`,
 which we need to define so that any constant value can be iteratively mutated
 into any other constant value.
 
-We also typically want this to depend on the temperature --- lower temperatures
-mean a smaller rate of change. You can use temperature as you see fit, or ignore it.
+The `temperature` argument reflects per-call mutation scaling, including
+simulated annealing. You can use it as you see fit, or ignore it.
+The `mutation` argument contains the selected [`ConstantMutation`](@ref) configuration.
 =#
 
 using SymbolicRegression.UtilsModule: poisson_sample
@@ -151,10 +152,10 @@ import SymbolicRegression: mutate_value
 
 sample_alphabet(rng::AbstractRNG) = rand(rng, 'a':'z')
 
-function mutate_value(rng::AbstractRNG, val::String, T, options)
+function mutate_value(rng::AbstractRNG, val::String, temperature, mutation::ConstantMutation)
     max_length = 10
     lambda_max = 5.0
-    λ = max(nextfloat(0.0), lambda_max * clamp(float(T), 0, 1))
+    λ = max(nextfloat(0.0), lambda_max * clamp(temperature, 0, 1))
     n_edits = clamp(poisson_sample(rng, λ), 0, 10)
     chars = collect(val)
     ops = rand(rng, (:insert, :delete, :replace, :swap), n_edits)
@@ -220,25 +221,11 @@ and `unary_operators` as normal, but now we also pass `GenericOperatorEnum`,
 because we are dealing with non-numeric types.
 
 We also need to manually define the `loss_type`, since it's not inferrable from
-`loss_type`.
+ the data type.
 =#
-binary_operators = (concat, zip)
+binary_operators = (concat, interleave)
 unary_operators = (head, tail, reverse)
-
-# Make this example run quickly in CI (it is included in the test suite).  #src
-test_kwargs = if get(ENV, "SYMBOLIC_REGRESSION_IS_TESTING", "false") == "true"  #src
-    (;  #src
-        seed=0,  #src
-        niterations=30,  #src
-        populations=10,  #src
-        population_size=30,  #src
-        tournament_selection_n=10,  #src
-        ncycles_per_iteration=80,  #src
-    )  #src
-else  #src
-    NamedTuple()  #src
-end  #src
-
+test_loss_threshold = 8.0  #src
 hparams = (;
     batching=true,
     batch_size=32,
@@ -246,7 +233,7 @@ hparams = (;
     parsimony=0.1,
     adaptive_parsimony_scaling=20.0,
     mutation_weights=MutationWeights(; mutate_constant=1.0),
-    early_stop_condition=(l, c) -> l < 1.0 && c <= 15,  # src
+    early_stop_condition=(l, _) -> l <= test_loss_threshold,  #src
 )
 model = SRRegressor(;
     binary_operators,
@@ -255,14 +242,12 @@ model = SRRegressor(;
     elementwise_loss=edit_distance,
     loss_type=Float64,
     hparams...,
-    test_kwargs...,  #src
 );
 
-mach = machine(model, X, y; scitype_check_level=0)
+mach = machine(model, X, y)
 
 #=
 At this point, you would run `fit!(mach)` as usual.
-Ignore the MLJ warnings about `scitype`s.
 ```julia
 fit!(mach)
 ```
@@ -274,7 +259,7 @@ using Test
 
 fit!(mach)
 
-ŷ = report(mach).equations[end](MLJBase.matrix(X; transpose=true))
+ŷ = report(mach).equations[end](stack(collect ∘ values, X))
 mean_loss = sum(map(edit_distance, y, ŷ)) / length(y)
-@test mean_loss <= 9.5
+@test mean_loss <= test_loss_threshold
 #! format: on

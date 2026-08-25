@@ -1,6 +1,6 @@
 # API
 
-## MLJ interface
+## Regressor interface
 
 ```@docs
 SRRegressor
@@ -11,6 +11,12 @@ MultitargetSRRegressor
 
 ```@docs
 equation_search
+```
+
+## Template Expressions
+
+```@docs
+@template_spec
 ```
 
 ## Options
@@ -30,7 +36,7 @@ string_tree
 
 ```@docs
 eval_tree_array
-EvalOptions
+EvalContext
 ```
 
 ## Derivatives

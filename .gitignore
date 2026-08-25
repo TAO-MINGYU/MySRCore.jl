@@ -21,6 +21,16 @@ pysr_recorder.json
 docs/src/index.md
 *.code-workspace
 .vscode
-**/*.json
+docs/node_modules/
+docs/package-lock.json
+
 LocalPreferences.toml
+!test/LocalPreferences.toml
+!test/**/LocalPreferences.toml
 private
+
+# Serialized Julia objects
+*.jls
+
+# Generated examples:
+docs/src/examples/

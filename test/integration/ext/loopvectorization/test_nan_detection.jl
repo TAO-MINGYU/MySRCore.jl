@@ -1,4 +1,5 @@
 @testitem "Test NaN detection with LoopVectorization" begin
+    println("Testing NaN detection.")
     using SymbolicRegression
     using LoopVectorization
 
@@ -49,4 +50,6 @@
         output, flag = eval_tree_array(tree, X, options)
         @test !flag
     end
+
+    println("Passed.")
 end

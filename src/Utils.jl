@@ -5,6 +5,13 @@ using Printf: @printf
 using MacroTools: splitdef
 using StyledStrings: StyledStrings
 using Random: AbstractRNG, default_rng
+using DispatchDoctor: @unstable
+using Compat: allequal
+
+@unstable @inline function strictmap(f, xs...)
+    allequal(length, xs) || throw(DimensionMismatch("collections must have equal lengths"))
+    return map(f, xs...)
+end
 
 macro ignore(args...) end
 
@@ -29,11 +36,6 @@ function is_anonymous_function(op)
            op_string[2] in ('1', '2', '3', '4', '5', '6', '7', '8', '9')
 end
 precompile(Tuple{typeof(is_anonymous_function),Function})
-
-recursive_merge(x::AbstractVector...) = cat(x...; dims=1)
-recursive_merge(x::AbstractDict...) = merge(recursive_merge, x...)
-recursive_merge(x...) = x[end]
-recursive_merge() = error("Unexpected input.")
 
 get_base_type(::Type{Complex{BT}}) where {BT} = BT
 
@@ -146,6 +148,7 @@ function argmin_fast(x::AbstractVector{T}) where {T}
 end
 
 function poisson_sample(rng::AbstractRNG, λ::T) where {T}
+    iszero(λ) && return 0
     k, p, L = 0, one(T), exp(-λ)
     while p > L
         k += 1
@@ -202,7 +205,7 @@ function _save_kwargs(log_variable::Symbol, fdef::Expr)
     end
 end
 
-json3_write(args...) = error("Please load the JSON3.jl package.")
+json3_write(args...; kws...) = error("Please load the JSON3.jl package.")
 
 """
     PerTaskCache{T,F}
@@ -288,6 +291,10 @@ function FixKws(f::F; kws...) where {F}
 end
 function (f::FixKws{F,KWS})(args::Vararg{Any,N}) where {F,KWS,N}
     return f.f(args...; f.kws...)
+end
+
+@unstable function stable_get!(f::F, dict, key) where {F}
+    return get!(f, dict, key)::(Base.promote_op(f))
 end
 
 end

@@ -1,4 +1,4 @@
-@testitem "GraphNode evaluation" tags = [:part1] begin
+@testitem "GraphNode evaluation" begin
     using SymbolicRegression
 
     options = Options(;
@@ -20,7 +20,7 @@
     eval_tree_array(tree, dataset.X, options)
 end
 
-@testitem "GraphNode complexity" tags = [:part1] begin
+@testitem "GraphNode complexity" begin
     using SymbolicRegression
 
     options = Options(;
@@ -35,7 +35,7 @@ end
     @test compute_complexity(tree, options; break_sharing=Val(true)) == 22
 end
 
-@testitem "GraphNode population" tags = [:part1] begin
+@testitem "GraphNode population" begin
     using SymbolicRegression
 
     options = Options(;
@@ -49,16 +49,20 @@ end
     z = @. cos(X[1, :] - 3.2) * X[2, :] - X[3, :] * X[3, :]
     y = @. sin(z) + z
     dataset = Dataset(X, y)
+    plugin_states = SymbolicRegression.init_plugin_states(options, dataset)
 
-    pop = Population(dataset; options, nlength=3, nfeatures=3, population_size=100)
+    pop = Population(
+        dataset; options, nlength=3, nfeatures=3, population_size=100, plugin_states
+    )
     @test pop isa Population{T,T,<:Expression{T,<:GraphNode{T}}} where {T}
 
     # Seems to not work yet:
     # equation_search([dataset]; niterations=10, options)
 end
 
-@testitem "GraphNode break connection mutation" tags = [:part1] begin
+@testitem "GraphNode break connection mutation" begin
     using SymbolicRegression
+    using SymbolicRegression: TraceType, mutate!
     using SymbolicRegression.MutationFunctionsModule: break_random_connection!
     using Random: MersenneTwister
 
@@ -88,10 +92,18 @@ end
         "sin(cos(x1 - 3.2) * x2) + (cos(x1 - 3.2) * x2)",
     ])
     # Either it breaks the connection or not
+
+    dataset = Dataset(randn(3, 8), randn(8))
+    member = PopMember(dataset, ex, options; deterministic=true)
+    result = mutate!(
+        copy(ex), member, BreakConnectionMutation(), options; trace=TraceType()
+    )
+    @test result.tree isa typeof(ex)
 end
 
-@testitem "GraphNode form connection mutation" tags = [:part1] begin
+@testitem "GraphNode form connection mutation" begin
     using SymbolicRegression
+    using SymbolicRegression: TraceType, mutate!
     using SymbolicRegression.MutationFunctionsModule: form_random_connection!
     using Random: MersenneTwister
 
@@ -130,4 +142,9 @@ end
         "cos((1.5 * x2) + {1.5})",
         "cos((x1 * x2) + {(x1 * x2)})",
     ])
+
+    dataset = Dataset(randn(2, 8), randn(8))
+    member = PopMember(dataset, ex, options; deterministic=true)
+    result = mutate!(copy(ex), member, FormConnectionMutation(), options; trace=TraceType())
+    @test result.tree isa typeof(ex)
 end
