@@ -1,7 +1,7 @@
 module SymbolicRegressionMooncakeExt
 
 using DynamicExpressions: DynamicExpressions as DE
-using SymbolicRegression: SymbolicRegression as SR
+using MySRCore: SymbolicRegression as SR
 using Mooncake: Mooncake
 
 function DE.extract_gradient(

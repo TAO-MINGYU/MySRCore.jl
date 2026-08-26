@@ -1,7 +1,7 @@
 module SymbolicRegressionTablesExt
 
 using Tables: Tables
-import SymbolicRegression.MLJInterfaceModule:
+import MySRCore.SymbolicRegression.MLJInterfaceModule:
     _tables_istable,
     _tables_colnames,
     _tables_columns,

@@ -2,11 +2,11 @@ module SymbolicRegressionSymbolicUtilsExt
 
 using SymbolicUtils
 const SymbolicType = SymbolicUtils.BasicSymbolic
-using SymbolicRegression: AbstractExpressionNode, AbstractExpression, Node, Options
-using SymbolicRegression.MLJInterfaceModule: AbstractSymbolicRegressor, get_options
+using MySRCore: AbstractExpressionNode, AbstractExpression, Node, Options
+using MySRCore.SymbolicRegression.MLJInterfaceModule: AbstractSymbolicRegressor, get_options
 using DynamicExpressions: get_tree, get_operators
 
-import SymbolicRegression: node_to_symbolic, symbolic_to_node
+import MySRCore: node_to_symbolic, symbolic_to_node
 
 """
     node_to_symbolic(tree::AbstractExpressionNode, options::Options; kws...)

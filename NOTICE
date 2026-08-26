@@ -1,0 +1,12 @@
+MySRCore.jl
+Copyright 2026 Mingyu Tao
+
+This product includes software derived from SymbolicRegression.jl:
+https://github.com/astroautomata/SymbolicRegression.jl
+Copyright Miles Cranmer and the SymbolicRegression.jl contributors.
+
+The retained upstream baseline is SymbolicRegression.jl 2.0.0-beta.8 at commit
+35d45fd625dc8df0067df60c72b615d83518ed44.
+
+MySRCore.jl is an independent modified work and is not an official release of
+SymbolicRegression.jl. It is distributed under Apache License 2.0.
