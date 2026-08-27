@@ -1,3 +1,4 @@
+# Modified from SymbolicRegression.jl 2.0.0-beta.8 for the MySRCore namespace.
 module SymbolicRegressionEnzymeExt
 
 using MySRCore.SymbolicRegression.LossFunctionsModule: eval_loss

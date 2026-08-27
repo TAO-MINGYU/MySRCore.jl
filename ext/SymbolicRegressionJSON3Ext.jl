@@ -1,3 +1,4 @@
+# Modified from SymbolicRegression.jl 2.0.0-beta.8 for the MySRCore namespace.
 module SymbolicRegressionJSON3Ext
 
 using JSON3: JSON3

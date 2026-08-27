@@ -1,6 +1,19 @@
 # Citing
 
-To cite SymbolicRegression.jl or PySR, please use the following BibTeX entry:
+When citing MySRCore.jl itself, identify the software version and repository:
+
+```bibtex
+@misc{taoMySRCore2026,
+    title = {MySRCore.jl: Julia algorithm core for MySR},
+    author = {Tao, Mingyu},
+    year = {2026},
+    version = {0.1.0},
+    url = {https://github.com/TAO-MINGYU/MySRCore.jl},
+}
+```
+
+MySRCore.jl retains substantial code from SymbolicRegression.jl. Please also cite
+the upstream PySR and SymbolicRegression.jl work with the following entry:
 
 ```bibtex
 @misc{cranmerInterpretableMachineLearning2023,

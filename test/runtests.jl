@@ -1,3 +1,4 @@
+# MySRCore package-contract tests added to the SymbolicRegression.jl baseline.
 using MySRCore
 using Test
 

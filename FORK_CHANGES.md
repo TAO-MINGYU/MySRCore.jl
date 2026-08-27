@@ -1,5 +1,12 @@
 # Fork changes
 
+## 2026-08-27 - MySRCore 0.1.0 release foundation
+
+- Added a pinned upstream baseline document and explicit modified-file notices.
+- Distinguished the MySRCore changelog and citation guidance from the retained
+  SymbolicRegression.jl history.
+- Documented GitHub-tag installation for MySR and direct Julia users.
+
 ## 2026-08-26 - MySRCore 0.1.0 foundation
 
 The following files differ from the retained SymbolicRegression.jl baseline:

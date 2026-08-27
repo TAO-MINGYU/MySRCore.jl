@@ -1,5 +1,18 @@
 # Changelog
 
+## MySRCore 0.1.0 (2026-08-27)
+
+- Established the independent `MySRCore` package name, UUID, and wrapper module.
+- Retained SymbolicRegression.jl 2.0.0-beta.8 as the attributed algorithm baseline.
+- Routed Julia extensions through the MySRCore package namespace.
+- Added package-identity tests, provenance documents, and a pinned GitHub release
+  for automatic installation by MySR.
+
+## Upstream SymbolicRegression.jl history
+
+The entries below are retained unchanged from the pinned upstream baseline for
+traceability. They describe SymbolicRegression.jl releases, not MySRCore releases.
+
 ## [2.0.0-beta.8](https://github.com/astroautomata/SymbolicRegression.jl/compare/v2.0.0-beta.7...v2.0.0-beta.8) (2026-08-15)
 
 ### Bug Fixes
