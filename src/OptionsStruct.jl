@@ -202,8 +202,8 @@ struct Options{
     tournament_selection_n::Int
     tournament_selection_p::Float64
     parsimony::Float64
-    dimensional_constraint_penalty::Union{Float64,Nothing}
-    dimensionless_constants_only::Bool
+    # MySR formula type controls the dimensional contract.
+    formula_type::Symbol
     maxsize::Int
     maxdepth::Int
     turbo::Val{_turbo}
@@ -229,6 +229,14 @@ struct Options{
     fraction_replaced::Float64
     fraction_replaced_hof::Float64
     fraction_replaced_guesses::Float64
+    rnn_gpsr_seeding::Bool
+    rnn_gpsr_seed_fraction::Float64
+    rnn_gpsr_candidate_count::Int
+    rnn_gpsr_proposal_count::Int
+    rnn_gpsr_cycles::Int
+    rnn_gpsr_rounds::Int
+    rnn_gpsr_quality_gate::Bool
+    rnn_gpsr_maxsize::Int
     topn::Int
     verbosity::Union{Int,Nothing}
     v_print_precision::Val{print_precision}
@@ -315,6 +323,15 @@ specialized_options(options::AbstractOptions) = options
 @unstable function specialized_options(options::Options)
     return _specialized_options(options, options.operators)
 end
+
+"""Return the normalized dimensional policy for an options object."""
+@inline function dimension_policy(options::AbstractOptions)::Symbol
+    formula_type = getproperty(options, :formula_type)
+    formula_type === :empirical && return :ignore
+    formula_type === :theoretical && return :strict
+    formula_type === :semi_theoretical && return :compatible
+    throw(ArgumentError("Unsupported formula_type: $(formula_type)"))
+end
 @generated function _specialized_options(
     options::O, operators::OP
 ) where {O<:Options,OP<:AbstractOperatorEnum}
@@ -344,11 +361,19 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :op_constraints,
         :nested_constraints,
         :complexity_mapping,
-        :dimensionless_constants_only,
+        :formula_type,
         :maxsize,
         :maxdepth,
         :populations,
         :population_size,
+        :rnn_gpsr_seeding,
+        :rnn_gpsr_seed_fraction,
+        :rnn_gpsr_candidate_count,
+        :rnn_gpsr_proposal_count,
+        :rnn_gpsr_cycles,
+        :rnn_gpsr_rounds,
+        :rnn_gpsr_quality_gate,
+        :rnn_gpsr_maxsize,
         :node_type,
         :expression_type,
         :expression_options,

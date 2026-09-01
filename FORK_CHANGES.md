@@ -1,5 +1,15 @@
 # Fork changes
 
+## 2026-09-01 - MySRCore 1.0.0
+
+- Promoted the MySRCore package to its first stable release for the MySR 1.0.0
+  frontend/backend contract.
+- Added strict and compatible dimension policies selected by formula_type,
+  including dimension-aware feature metadata and the semi-theoretical C_dim
+  boundary behavior.
+- Removed the inherited soft dimensional-constraint APIs; callers now provide
+  explicit X_dimensions and y_dimensions metadata.
+
 ## 2026-08-27 - MySRCore 0.1.0 release foundation
 
 - Added a pinned upstream baseline document and explicit modified-file notices.

@@ -22,7 +22,6 @@ using ..CoreModule:
     get_full_dataset,
     init_value
 using ..ComplexityModule: compute_complexity
-using ..DimensionalAnalysisModule: violates_dimensional_constraints
 using ..InterfaceDynamicExpressionsModule:
     expected_array_type, takes_eval_context, _process_eval_options
 
@@ -135,10 +134,6 @@ function _eval_loss(
         )
     else
         _loss(prediction, dataset.y::AbstractArray, options.elementwise_loss)
-    end
-
-    if regularization
-        loss_val += dimensional_regularization(tree, dataset, options)
     end
 
     return loss_val
@@ -269,17 +264,6 @@ function update_baseline_loss!(
         dataset.use_baseline = false
     end
     return nothing
-end
-
-function dimensional_regularization(
-    tree::Union{AbstractExpression{T},AbstractExpressionNode{T}},
-    dataset::Dataset{T,L},
-    options::AbstractOptions,
-) where {T<:DATA_TYPE,L<:LOSS_TYPE}
-    if !violates_dimensional_constraints(tree, dataset, options)
-        return zero(L)
-    end
-    return convert(L, something(options.dimensional_constraint_penalty, 1000))
 end
 
 end

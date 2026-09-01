@@ -81,7 +81,7 @@ function (step::MutationStep)(parent)
     trace_mutation_step!(step.traced_steps, parent, member, step_trace)
     accepted &&
         !isnothing(step.attempted_members) &&
-        update_hall_of_fame!(step.best_seen, member, step.options)
+        update_hall_of_fame!(step.best_seen, member, step.dataset, step.options)
     return result
 end
 
@@ -189,12 +189,8 @@ function reg_evol_cycle(
             )
             num_evals += tmp_num_evals
             if crossover_accepted
-                _update_hall_of_fame_unchecked!(
-                    best_seen, baby1, compute_complexity(baby1, options)
-                )
-                _update_hall_of_fame_unchecked!(
-                    best_seen, baby2, compute_complexity(baby2, options)
-                )
+                update_hall_of_fame!(best_seen, baby1, dataset, options)
+                update_hall_of_fame!(best_seen, baby2, dataset, options)
             end
 
             if !crossover_accepted && options.skip_mutation_failures

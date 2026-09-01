@@ -56,6 +56,10 @@ export Population,
     calculate_pareto_frontier,
     count_nodes,
     compute_complexity,
+    dimension_policy,
+    DimensionCheckResult,
+    infer_dimension_static,
+    validate_search_candidate,
     @parse_expression,
     parse_expression,
     @declare_expression_operator,
@@ -74,6 +78,7 @@ export Population,
     combine_operators,
     gen_random_tree,
     gen_random_tree_fixed_size,
+    gen_random_tree_dimensional,
     @extend_operators,
     get_tree,
     get_contents,
@@ -241,6 +246,7 @@ using DispatchDoctor: @stable, @unstable
     include("InterfaceDynamicExpressions.jl")
     include("Complexity.jl")
     include("DimensionalAnalysis.jl")
+    include("DimensionGeneration.jl")
     include("CheckConstraints.jl")
     include("InverseFunctions.jl")
     include("EvaluateInverse.jl")
@@ -257,6 +263,7 @@ using DispatchDoctor: @stable, @unstable
     include("Crossover.jl")
     include("RegularizedEvolution.jl")
     include("SingleIteration.jl")
+    include("PopulationSeeding.jl")
     include("ProgressBars.jl")
     include("Migration.jl")
     include("SearchUtils.jl")
@@ -283,6 +290,7 @@ using .CoreModule:
     AbstractOptions,
     Options,
     ComplexityMapping,
+    dimension_policy,
     WarmStartIncompatibleError,
     MutationWeights,
     AbstractMutation,
@@ -345,7 +353,7 @@ using .CoreModule:
     erfc,
     atanh_clip,
     create_expression,
-    has_units,
+    has_dimensions,
     AbstractPlugin,
     MutationEvent,
     init_plugin_state,
@@ -372,6 +380,15 @@ using .CoreModule:
     ConstantMutationContext
 using .UtilsModule: is_anonymous_function, strictmap, @ignore
 using .ComplexityModule: compute_complexity
+using .DimensionalAnalysisModule:
+    DimensionCheckResult,
+    infer_dimension_static,
+    validate_search_candidate,
+    dimensional_scale_operator_index,
+    wrap_dimensional_scale,
+    unwrap_dimensional_scale,
+    dimensional_scale_coefficient
+using .DimensionGenerationModule: gen_random_tree_dimensional
 using .CheckConstraintsModule: check_constraints
 using .MutationFunctionsModule:
     gen_random_tree, gen_random_tree_fixed_size, random_node, crossover_trees
@@ -398,6 +415,7 @@ using .HallOfFameModule:
 using .MutateModule: mutate!, condition_mutation_weights!, MutationResult
 using .CrossoverModule: crossover, CrossoverResult
 using .SingleIterationModule: s_r_cycle, optimize_and_simplify_population
+using .PopulationSeedingModule: build_rnn_gpsr_seed_pool, inject_rnn_gpsr_seeds!
 using .ProgressBarsModule: WrappedProgressBar
 using .TracingModule:
     initialize_trace!, new_trace, next_trace_iteration, trace_iteration_start!, write_trace
@@ -546,13 +564,11 @@ which is useful for debugging and profiling.
     or pass `nothing` to disable logging.
 - `progress`: Whether to use a progress bar output. Only available for
     single target output.
-- `X_units::Union{AbstractVector,Nothing}=nothing`: The units of the dataset,
-    to be used for dimensional constraints. For example, if `X_units=["kg", "m"]`,
-    then the first feature will have units of kilograms, and the second will
-    have units of meters.
-- `y_units=nothing`: The units of the output, to be used for dimensional constraints.
-    If `y` is a matrix, then this can be a vector of units, in which case
-    each element corresponds to each output feature.
+- `X_dimensions::Union{AbstractVector,Nothing}=nothing`: The seven-component
+    exponent-vector dimensions of the dataset, in the order length, mass, time,
+    current, temperature, luminosity, amount.
+- `y_dimensions=nothing`: The dimension vector of the output. If `y` is a matrix,
+    pass one dimension specification per output feature.
 - `extra::NamedTuple=NamedTuple()`: Extra information to pass to a custom
     evaluation function. Since this is an arbitrary named tuple, you could pass
     any sort of dataset you wish to here.
@@ -561,6 +577,11 @@ which is useful for debugging and profiling.
     - Single output: `["x1^2 + x2", "sin(x1) * x2"]`
     - Multi-output: `[["x1 + x2"], ["x1 * x2", "x1 - x2"]]`
     Constants will be automatically optimized.
+- `rnn_generator=nothing`: Optional recurrent-policy callback used when
+    `options.rnn_gpsr_seeding=true`. It receives evaluated training token sequences,
+    their costs, token arities, proposal count, maximum length, and a deterministic
+    seed, and returns prefix-token expression sequences. MySR supplies a PyTorch
+    implementation.
 
 # Returns
 - `hallOfFame::HallOfFame`: The best equations seen during the search.
@@ -593,10 +614,11 @@ function equation_search(
     verbosity::Union{Integer,Nothing}=nothing,
     logger::Union{AbstractSRLogger,Nothing}=nothing,
     progress::Union{Bool,Nothing}=nothing,
-    X_units::Union{AbstractVector,Nothing}=nothing,
-    y_units=nothing,
+    X_dimensions::Union{AbstractVector,Nothing}=nothing,
+    y_dimensions=nothing,
     extra::NamedTuple=NamedTuple(),
     guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing}=nothing,
+    rnn_generator=nothing,
     v_dim_out::Val{DIM_OUT}=Val(nothing),
     # Deprecated:
     multithreaded=nothing,
@@ -620,8 +642,8 @@ function equation_search(
         variable_names,
         display_variable_names,
         y_variable_names,
-        X_units,
-        y_units,
+        X_dimensions,
+        y_dimensions,
         extra,
         L,
     )
@@ -645,6 +667,7 @@ function equation_search(
         logger=logger,
         progress=progress,
         guesses=guesses,
+        rnn_generator=rnn_generator,
         v_dim_out=Val(DIM_OUT),
     )
 end
@@ -664,6 +687,7 @@ function equation_search(
     options::AbstractOptions=Options(),
     saved_state=nothing,
     guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing}=nothing,
+    rnn_generator=nothing,
     runtime_options::Union{AbstractRuntimeOptions,Nothing}=nothing,
     runtime_options_kws...,
 ) where {T<:DATA_TYPE,L<:LOSS_TYPE,D<:Dataset{T,L}}
@@ -679,7 +703,9 @@ function equation_search(
     )
 
     # Underscores here mean that we have mutated the variable
-    return _equation_search(datasets, _runtime_options, options, saved_state, guesses)
+    return _equation_search(
+        datasets, _runtime_options, options, saved_state, guesses, rnn_generator
+    )
 end
 
 @noinline function _equation_search(
@@ -688,10 +714,13 @@ end
     options::AbstractOptions,
     saved_state,
     guesses,
+    rnn_generator,
 ) where {D<:Dataset}
     _validate_options(datasets, ropt, options)
     state = _create_workers(datasets, ropt, options)
-    _initialize_search!(state, datasets, ropt, options, saved_state, guesses)
+    _initialize_search!(
+        state, datasets, ropt, options, saved_state, guesses, rnn_generator
+    )
     _warmup_search!(state, datasets, ropt, options)
     _main_search_loop!(state, datasets, ropt, options)
     _tear_down!(state, datasets, ropt, options)
@@ -869,6 +898,7 @@ function _initialize_search!(
     options::AbstractOptions,
     saved_state,
     guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing},
+    rnn_generator,
 ) where {T,L,N}
     nout = length(datasets)
 
@@ -897,7 +927,32 @@ function _initialize_search!(
         )
         for j in 1:nout
             state.seed_members[j] = copy(parsed_seed_members[j])
-            update_hall_of_fame!(state.halls_of_fame[j], parsed_seed_members[j], options)
+            update_hall_of_fame!(
+                state.halls_of_fame[j], parsed_seed_members[j], datasets[j], options
+            )
+        end
+    end
+
+    rnn_gpsr_seed_pools = [eltype(state.seed_members[j])[] for j in 1:nout]
+    rnn_gpsr_seed_evals = zeros(Float64, nout)
+    if options.rnn_gpsr_seeding && saved_state === nothing
+        for j in 1:nout
+            seed_plugin_states = strictmap(
+                (plugin, head_state) ->
+                    fork_plugin_state(head_state, plugin, datasets[j]),
+                options.plugins,
+                state.plugin_states[j],
+            )
+            pool, evaluations = build_rnn_gpsr_seed_pool(
+                datasets[j],
+                options,
+                seed_plugin_states;
+                rnn_generator,
+                seed_offset=100_003 * j,
+            )
+            rnn_gpsr_seed_pools[j] = pool
+            rnn_gpsr_seed_evals[j] = evaluations
+            update_hall_of_fame!(state.halls_of_fame[j], pool, datasets[j], options)
         end
     end
 
@@ -910,6 +965,9 @@ function _initialize_search!(
             _plugin_states = state.plugin_states[j]
             _worker_plugin_states = state.worker_plugin_states[j][i]
             _dataset = datasets[j]
+            _seed_pool = rnn_gpsr_seed_pools[j]
+            _seed_evals = i == 1 ? rnn_gpsr_seed_evals[j] : 0.0
+            _population_index = i
             if saved_pop !== nothing && length(saved_pop.members) == options.population_size
                 _saved_pop = strip_metadata(saved_pop, options, _dataset)
                 ## Update losses:
@@ -925,7 +983,7 @@ function _initialize_search!(
                             copy_pop,
                             HallOfFame(options, _dataset),
                             new_trace(options),
-                            0.0,
+                            _seed_evals,
                             _worker_plugin_states,
                         )
                     end,
@@ -938,18 +996,27 @@ function _initialize_search!(
                 end
                 @sr_spawner(
                     begin
+                        initial_population = Population(
+                            _dataset;
+                            population_size=options.population_size,
+                            nlength=3,
+                            options=options,
+                            nfeatures=max_features(_dataset, options),
+                            plugin_states=_plugin_states,
+                        )
+                        if options.rnn_gpsr_seeding
+                            inject_rnn_gpsr_seeds!(
+                                initial_population,
+                                _seed_pool,
+                                options;
+                                population_index=_population_index,
+                            )
+                        end
                         (
-                            Population(
-                                _dataset;
-                                population_size=options.population_size,
-                                nlength=3,
-                                options=options,
-                                nfeatures=max_features(_dataset, options),
-                                plugin_states=_plugin_states,
-                            ),
+                            initial_population,
                             HallOfFame(options, _dataset),
                             new_trace(options),
-                            Float64(options.population_size),
+                            _seed_evals + Float64(options.population_size),
                             _worker_plugin_states,
                         )
                     end,
@@ -1013,7 +1080,7 @@ function _warmup_search!(
         HallType = HallOfFame{T,L,N,PM}
         TraceStateType = typeof(state.trace_prototype)
 
-        (in_pop, _, _, _, worker_plugin_states) = extract_from_worker(
+        (in_pop, _, _, initial_num_evals, worker_plugin_states) = extract_from_worker(
             last_pop,
             PopType,
             HallType,
@@ -1032,6 +1099,7 @@ function _warmup_search!(
                     ropt.verbosity,
                     cur_maxsize,
                     plugin_states=worker_plugin_states,
+                    initial_num_evals,
                 )::DefaultWorkerOutputType{
                     Population{T,L,N},
                     HallOfFame{T,L,N},
@@ -1140,8 +1208,10 @@ function _main_search_loop!(
             cur_maxsize = state.cur_maxsizes[j]
 
             #! format: off
-            update_hall_of_fame!(state.halls_of_fame[j], cur_pop.members, options)
-            update_hall_of_fame!(state.halls_of_fame[j], best_seen.members[best_seen.exists], options)
+            update_hall_of_fame!(state.halls_of_fame[j], cur_pop.members, dataset, options)
+            update_hall_of_fame!(
+                state.halls_of_fame[j], best_seen.members[best_seen.exists], dataset, options
+            )
             #! format: on
 
             # Dominating pareto curve - must be better than all simpler equations
@@ -1367,10 +1437,11 @@ end
     verbosity,
     cur_maxsize::Int,
     plugin_states::Tuple,
+    initial_num_evals::Float64=0.0,
 ) where {T,L,N}
     trace = new_trace(options)
     trace_iteration_start!(trace, out, pop, iteration, in_pop, options)
-    num_evals = 0.0
+    num_evals = initial_num_evals
     out_pop, best_seen, evals_from_cycle = s_r_cycle(
         dataset,
         in_pop,

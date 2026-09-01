@@ -68,9 +68,40 @@ function test_option_configuration(
         verbosity > 0 &&
             @warn "You are using multithreading mode, but only one thread is available. Try starting julia with `--threads=auto`."
     end
-    if any(has_units, datasets) && options.dimensional_constraint_penalty === nothing
-        verbosity > 0 &&
-            @warn "You are using dimensional constraints, but `dimensional_constraint_penalty` was not set. The default penalty of `1000.0` will be used."
+    policy = dimension_policy(options)
+    if policy === :compatible
+        for dataset in datasets
+            dataset.X_dimensions === nothing &&
+                throw(ArgumentError(
+                    "formula_type=:semi_theoretical requires one X_dimensions entry per input feature.",
+                ))
+            dataset.y_dimensions === nothing &&
+                throw(ArgumentError(
+                    "formula_type=:semi_theoretical requires y_dimensions for every output.",
+                ))
+        end
+        options.should_optimize_constants ||
+            throw(ArgumentError(
+                "formula_type=:semi_theoretical requires should_optimize_constants=true " *
+                "so the external coefficient C_dim can be fitted.",
+            ))
+        dimensional_scale_operator_index(options)
+    end
+    if policy === :strict
+        for dataset in datasets
+            dataset.X_dimensions === nothing &&
+                throw(
+                    ArgumentError(
+                        "formula_type=:theoretical requires one X_dimensions entry per input feature.",
+                    ),
+                )
+            dataset.y_dimensions === nothing &&
+                throw(
+                    ArgumentError(
+                        "formula_type=:theoretical requires y_dimensions for every output.",
+                    ),
+                )
+        end
     end
 
     if any(is_anonymous_function, options.operators.binops) ||

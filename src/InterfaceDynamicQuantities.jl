@@ -4,65 +4,73 @@ using DispatchDoctor: @unstable
 using DynamicQuantities:
     UnionAbstractQuantity,
     AbstractDimensions,
+    AbstractQuantity,
     Dimensions,
-    SymbolicDimensions,
     Quantity,
     dimension,
-    uparse,
-    sym_uparse,
     dim_type,
     DEFAULT_DIM_BASE_TYPE
 
 """
-    get_units(T, D, x, f)
+    get_dimensions(T, dimensions)
 
-Gets unit information from a vector or scalar. The first two
-types are the default numeric type and dimensions type, respectively.
-The third argument is the value to get units from, and the fourth
-argument is a function for parsing strings (in case a string is passed)
+Normalize user-provided dimension metadata to dimension-only DynamicQuantities
+quantities. Public callers may pass an `AbstractDimensions`/`AbstractQuantity`,
+a seven-component exponent vector in the order
+length, mass, time, current, temperature, luminosity, amount, or a mapping with
+those names. Unit strings are intentionally rejected.
 """
-function get_units(args...)
-    return error(
-        "Unit information must be passed as one of `AbstractDimensions`, `AbstractQuantity`, `AbstractString`, `Function`.",
-    )
+function _dimension_from_spec(spec::AbstractDimensions)
+    return spec
 end
-function get_units(_, _, ::Nothing, ::Function)
+function _dimension_from_spec(spec::AbstractQuantity)
+    return dimension(spec)
+end
+function _dimension_from_spec(spec::AbstractString)
+    throw(ArgumentError("dimension specifications must be exponent vectors or mappings; unit strings are not accepted"))
+end
+function _dimension_from_spec(spec::AbstractDict)
+    values = ntuple(
+        name -> get(spec, name, get(spec, Symbol(name), 0.0)),
+        7,
+    )
+    return Dimensions(values...)
+end
+function _dimension_from_spec(spec::AbstractVector)
+    length(spec) == 7 ||
+        throw(ArgumentError("dimension vectors must contain exactly 7 exponents"))
+    return Dimensions(spec...)
+end
+function _dimension_from_spec(spec::Tuple)
+    length(spec) == 7 ||
+        throw(ArgumentError("dimension vectors must contain exactly 7 exponents"))
+    return Dimensions(spec...)
+end
+function _dimension_from_spec(spec)
+    throw(ArgumentError("dimension specifications must be mappings, 7-element vectors, or AbstractDimensions"))
+end
+
+function _dimension_quantity(::Type{T}, spec) where {T}
+    return Quantity(one(T), _dimension_from_spec(spec))
+end
+
+function get_dimensions(::Type{T}, ::Nothing) where {T}
     return nothing
 end
-function get_units(::Type{T}, ::Type{D}, x::AbstractString, f::F) where {T,D,F<:Function}
-    isempty(x) && return one(Quantity{T,D})
-    return convert(Quantity{T,D}, f(x))
+function get_dimensions(::Type{T}, dimensions::AbstractVector) where {T}
+    # A single seven-vector is one dimension; otherwise this is one spec per feature.
+    if length(dimensions) == 7 && all(x -> x isa Real, dimensions)
+        return _dimension_quantity(T, dimensions)
+    end
+    return Quantity{T}[_dimension_quantity(T, spec) for spec in dimensions]
 end
-function get_units(::Type{T}, ::Type{D}, x::Quantity, ::Function) where {T,D}
-    return convert(Quantity{T,D}, x)
-end
-function get_units(::Type{T}, ::Type{D}, x::AbstractDimensions, ::Function) where {T,D}
-    return convert(Quantity{T,D}, Quantity(one(T), x))
-end
-function get_units(::Type{T}, ::Type{D}, x::Real, ::Function) where {T,D}
-    return Quantity(convert(T, x), D)::Quantity{T,D}
-end
-function get_units(::Type{T}, ::Type{D}, x::AbstractVector, f::F) where {T,D,F<:Function}
-    return Quantity{T,D}[get_units(T, D, xi, f) for xi in x]
-end
-# TODO: Allow for AbstractQuantity output here
-
-"""
-    get_si_units(::Type{T}, units)
-
-Gets the units with Dimensions{DEFAULT_DIM_BASE_TYPE} type from a vector or scalar.
-"""
-function get_si_units(::Type{T}, units) where {T}
-    return get_units(T, Dimensions{DEFAULT_DIM_BASE_TYPE}, units, uparse)
+function get_dimensions(::Type{T}, dimensions) where {T}
+    return _dimension_quantity(T, dimensions)
 end
 
-"""
-    get_sym_units(::Type{T}, units)
-
-Gets the units with SymbolicDimensions{DEFAULT_DIM_BASE_TYPE} type from a vector or scalar.
-"""
-function get_sym_units(::Type{T}, units) where {T}
-    return get_units(T, SymbolicDimensions{DEFAULT_DIM_BASE_TYPE}, units, sym_uparse)
+"""Return the same dimension-only quantities for symbolic display metadata."""
+function get_symbolic_dimensions(::Type{T}, dimensions) where {T}
+    return get_dimensions(T, dimensions)
 end
 
 """

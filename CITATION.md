@@ -7,7 +7,7 @@ When citing MySRCore.jl itself, identify the software version and repository:
     title = {MySRCore.jl: Julia algorithm core for MySR},
     author = {Tao, Mingyu},
     year = {2026},
-    version = {0.1.0},
+    version = {1.0.0},
     url = {https://github.com/TAO-MINGYU/MySRCore.jl},
 }
 ```

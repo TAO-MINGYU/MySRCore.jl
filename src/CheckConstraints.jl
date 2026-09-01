@@ -9,6 +9,7 @@ using DynamicExpressions:
     get_child
 using ..CoreModule: AbstractOptions
 using ..ComplexityModule: compute_complexity, past_complexity_limit
+using ..DimensionalAnalysisModule: infer_dimension_static
 
 # Generic operator complexity checking for any degree
 function flag_operator_complexity(
@@ -90,6 +91,37 @@ function check_constraints(
     flag_illegal_nests(tree, options) && return false
     return true
 end
+
+"""Check structural and (when explicitly enabled) dimensional constraints."""
+function check_constraints(
+    ex::AbstractExpression,
+    dataset,
+    options::AbstractOptions,
+    maxsize::Int,
+    cached_size::Union{Int,Nothing}=nothing;
+    scope::Symbol=:full,
+)::Bool
+    return check_constraints(get_tree(ex), dataset, options, maxsize, cached_size; scope)
+end
+
+function check_constraints(
+    tree::AbstractExpressionNode,
+    dataset,
+    options::AbstractOptions,
+    maxsize::Int,
+    cached_size::Union{Int,Nothing}=nothing;
+    scope::Symbol=:full,
+)::Bool
+    check_constraints(tree, options, maxsize, cached_size) || return false
+    return infer_dimension_static(tree, dataset, options; scope).valid
+end
+
+check_constraints(
+    ex::Union{AbstractExpression,AbstractExpressionNode},
+    dataset,
+    options::AbstractOptions;
+    scope::Symbol=:full,
+)::Bool = check_constraints(ex, dataset, options, options.maxsize; scope)
 
 check_constraints(ex::Union{AbstractExpression,AbstractExpressionNode}, options::AbstractOptions)::Bool = check_constraints(
     ex, options, options.maxsize

@@ -8,7 +8,7 @@ using ..CoreModule:
 using ..ComplexityModule: compute_complexity
 using ..CheckConstraintsModule: check_constraints
 using ..PopMemberModule: AbstractPopMember, PopMember
-using ..InterfaceDynamicExpressionsModule: format_dimensions, WILDCARD_UNIT_STRING
+using ..InterfaceDynamicExpressionsModule: format_dimensions
 using Printf: @sprintf
 
 """
@@ -123,6 +123,19 @@ function update_hall_of_fame!(
     return _update_hall_of_fame_unchecked!(hall_of_fame, member, size)
 end
 
+"""Dataset-aware HOF update used by the dimensional search path."""
+function update_hall_of_fame!(
+    hall_of_fame::HallOfFame,
+    member::AbstractPopMember,
+    dataset::Dataset,
+    options::AbstractOptions,
+)
+    size = compute_complexity(member, options)
+    0 < size <= options.maxsize || return nothing
+    check_constraints(member.tree, dataset, options, options.maxsize, size) || return nothing
+    return _update_hall_of_fame_unchecked!(hall_of_fame, member, size)
+end
+
 function _update_hall_of_fame_unchecked!(
     hall_of_fame::HallOfFame, member::AbstractPopMember, size::Int
 )
@@ -153,6 +166,18 @@ function update_hall_of_fame!(
 )
     for member in members
         update_hall_of_fame!(hall_of_fame, member, options)
+    end
+    return nothing
+end
+
+function update_hall_of_fame!(
+    hall_of_fame::HallOfFame,
+    members::AbstractVector{<:AbstractPopMember},
+    dataset::Dataset,
+    options::AbstractOptions,
+)
+    for member in members
+        update_hall_of_fame!(hall_of_fame, member, dataset, options)
     end
     return nothing
 end
@@ -220,8 +245,8 @@ function string_dominating_pareto_curve(
             tree,
             options;
             display_variable_names=dataset.display_variable_names,
-            X_sym_units=dataset.X_sym_units,
-            y_sym_units=dataset.y_sym_units,
+            X_sym_dimensions=dataset.X_sym_dimensions,
+            y_sym_dimensions=dataset.y_sym_dimensions,
             pretty,
         )
         prefix = make_prefix(tree, options, dataset)
@@ -245,11 +270,8 @@ function string_dominating_pareto_curve(
 end
 function make_prefix(::AbstractExpression, ::AbstractOptions, dataset::Dataset)
     y_prefix = dataset.y_variable_name
-    unit_str = format_dimensions(dataset.y_sym_units)
-    y_prefix *= unit_str
-    if dataset.y_sym_units === nothing && dataset.X_sym_units !== nothing
-        y_prefix *= WILDCARD_UNIT_STRING
-    end
+    dimension_str = format_dimensions(dataset.y_sym_dimensions)
+    y_prefix *= dimension_str
     return y_prefix * " = "
 end
 

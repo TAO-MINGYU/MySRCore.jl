@@ -154,78 +154,42 @@ fit!(mach)
 
 ## 6. Dimensional constraints
 
-One other feature we can exploit is dimensional analysis.
-Say that we know the physical units of each feature and output,
-and we want to find an expression that is dimensionally consistent.
+MySRCore accepts explicit dimension metadata as seven-component exponent vectors in
+the fixed order `length, mass, time, current, temperature, luminosity, amount`.
+The `formula_type` in `Options` selects the contract: `:empirical` ignores dimensions,
+`:semi_theoretical` enforces dimensional compatibility inside the expression and fits
+an external coefficient `C_dim`, while `:theoretical` also requires the final expression
+to have the declared output dimension. There is no dimensional penalty parameter and
+no separate dimensionless-constant switch.
 
-We can do this as follows, using `DynamicQuantities` to assign units.
-First, let's make some data on Newton's law of gravitation:
-
-```julia
-using DynamicQuantities
-using SymbolicRegression
-
-M = (rand(100) .+ 0.1) .* Constants.M_sun
-m = 100 .* (rand(100) .+ 0.1) .* u"kg"
-r = (rand(100) .+ 0.1) .* Constants.R_earth
-
-G = Constants.G
-
-F = @. (G * M * m / r^2)
-```
-
-(Note that the `u` macro from `DynamicQuantities` will automatically convert to SI units. To avoid this,
-use the `us` macro.)
-
-Now, let's put the data in a named-column format:
+For example, for a target proportional to the square of a length variable:
 
 ```julia
-X = (; M=M, m=m, r=r)
-y = F
-```
+using MySRCore
 
-Since this data has such a large dynamic range, let's also create a custom loss function
-that looks at the error in log-space:
+X = reshape(Float64[1, 2, 3, 4], 1, :)
+y = 3 .* vec(X).^2
+length_dim = [1, 0, 0, 0, 0, 0, 0]
+area_dim = [2, 0, 0, 0, 0, 0, 0]
 
-```julia
-function loss_fnc(prediction, target)
-    # Useful loss for large dynamic range
-    scatter_loss = abs(log((abs(prediction)+1e-20) / (abs(target)+1e-20)))
-    sign_loss = 10 * (sign(prediction) - sign(target))^2
-    return scatter_loss + sign_loss
-end
-```
-
-Now let's define and fit our model:
-
-```julia
-model = SRRegressor(
+options = Options(
+    formula_type=:theoretical,
     binary_operators=[+, -, *, /],
-    unary_operators=[square],
-    elementwise_loss=loss_fnc,
-    complexity_of_constants=2,
-    maxsize=25,
     niterations=100,
-    populations=50,
-    dimensional_constraint_penalty=10^5,
 )
-mach = machine(model, X, y)
-fit!(mach)
+hall = equation_search(
+    X,
+    y;
+    options=options,
+    X_dimensions=[length_dim],
+    y_dimensions=area_dim,
+    parallelism=:serial,
+)
 ```
 
-You can observe that all expressions with a loss under
-our penalty are dimensionally consistent! (The `"[?]"` indicates free units in a constant,
-which can cancel out other units in the expression.) For example,
-
-```julia
-"y[m s⁻² kg] = (M[kg] * 2.6353e-22[?])"
-```
-
-would indicate that the expression is dimensionally consistent, with
-a constant `"2.6353e-22[m s⁻²]"`.
-
-Note that you can also search for dimensionless units by settings
-`dimensionless_constants_only` to `true`.
+The same `X_dimensions` and `y_dimensions` arguments are used by the Python MySR
+frontend. Invalid candidates are rejected structurally during generation and mutation;
+they are not retained with a soft loss penalty.
 
 ## 7. Working with Expressions
 

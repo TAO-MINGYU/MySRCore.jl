@@ -1,5 +1,6 @@
 module PopulationModule
 
+using Random: default_rng
 using StatsBase: StatsBase
 using DispatchDoctor: @unstable
 using DynamicExpressions: AbstractExpression, constructorof
@@ -15,6 +16,8 @@ using ..CoreModule:
     use_batching
 using ..LossFunctionsModule: eval_cost, update_baseline_loss!
 using ..MutationFunctionsModule: gen_random_tree
+using ..DimensionGenerationModule: gen_random_tree_dimensional
+using ..CheckConstraintsModule: check_constraints
 using ..PopMemberModule: AbstractPopMember, PopMember
 import ..PopMemberModule: popmember_type
 using ..UtilsModule: bottomk_fast, argmin_fast, PerTaskCache, strictmap
@@ -47,9 +50,35 @@ expression (two or more providers throw). If all plugins return `nothing`
 function _init_tree(
     dataset, options, nlength::Int, nfeatures::Int, ::Type{T}, plugin_states::Tuple
 ) where {T}
-    return @something(
-        resolve_init_member(plugin_states, options.plugins, dataset, options),
-        gen_random_tree(nlength, options, nfeatures, T),
+    # Keep initial members under the same dimensional gate as evolved members.
+    # This is deliberately separate from PopulationSeeding.jl: RNN-GPSR remains
+    # an optional later-stage seeding feature and is not changed here.
+    for _ in 1:64
+        plugin_tree = resolve_init_member(plugin_states, options.plugins, dataset, options)
+        tree = if plugin_tree === nothing
+            typed_tree = gen_random_tree_dimensional(
+                dataset, options, nlength, nfeatures, T, default_rng()
+            )
+            @something(typed_tree, gen_random_tree(nlength, options, nfeatures, T))
+        else
+            plugin_tree
+        end
+        check_constraints(tree, dataset, options, options.maxsize) && return tree
+    end
+    # Strict dimensional search can make the usual size-3 random proposal
+    # space sparse (for example, `x + c` is invalid when x has a nonzero dimension). Retry
+    # from a leaf-sized proposal before failing. This preserves startup
+    # performance while guaranteeing a valid simple seed whenever one exists.
+    for _ in 1:64
+        tree = @something(
+            gen_random_tree_dimensional(dataset, options, 1, nfeatures, T, default_rng()),
+            gen_random_tree(1, options, nfeatures, T),
+        )
+        check_constraints(tree, dataset, options, options.maxsize) && return tree
+    end
+    error(
+        "Unable to generate an initial expression satisfying the configured " *
+        "structural/dimensional constraints after 64 attempts.",
     )
 end
 
@@ -104,9 +133,13 @@ function _population_without_plugins(
     dataset::Dataset{T,L}; options::AbstractOptions, nlength::Int=3, nfeatures::Int
 ) where {T,L}
     PM = options.popmember_type
+    tree = @something(
+        gen_random_tree_dimensional(dataset, options, nlength, nfeatures, T, default_rng()),
+        gen_random_tree(nlength, options, nfeatures, T),
+    )
     member = constructorof(PM)(
         dataset,
-        gen_random_tree(nlength, options, nfeatures, T),
+        tree,
         options;
         parent=-1,
         deterministic=options.deterministic,

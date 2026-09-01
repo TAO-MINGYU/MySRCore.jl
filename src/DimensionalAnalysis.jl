@@ -1,218 +1,158 @@
 module DimensionalAnalysisModule
 
+import DynamicQuantities
 using DynamicExpressions:
-    AbstractExpression, AbstractExpressionNode, get_tree, get_child, tree_mapreduce
-using DynamicQuantities: Quantity, DimensionError, AbstractQuantity, constructorof
+    AbstractExpression,
+    AbstractExpressionNode,
+    constructorof,
+    get_tree,
+    get_child,
+    with_contents
+using DynamicQuantities: Quantity, DimensionError, AbstractQuantity
 
-using ..CoreModule: AbstractOptions, Dataset
-using ..UtilsModule: safe_call
-
+using ..CoreModule: AbstractOptions, Dataset, dimension_policy
 import DynamicQuantities: dimension, ustrip
 import ..CoreModule.OperatorsModule: safe_pow, safe_sqrt
-
-"""
-    @maybe_return_call(T, op, (args...))
-
-Basically, we try to evaluate the operator. If
-the method is defined AND there is no dimension error,
-we return. Otherwise, continue.
-"""
-macro maybe_return_call(T, op, inputs)
-    result = gensym()
-    successful = gensym()
-    quote
-        try
-            $(result), $(successful) = safe_call($(esc(op)), $(esc(inputs)), one($(esc(T))))
-            $(successful) && valid($(result)) && return $(result)
-        catch e
-            !isa(e, DimensionError) && rethrow(e)
-        end
-        false
-    end
-end
 
 function safe_sqrt(x::Q) where {T,Q<:AbstractQuantity{T}}
     ustrip(x) < 0 && return sqrt(abs(x)) * T(NaN)
     return sqrt(x)
 end
 
+"""Structured result of a static dimensional validation."""
+struct DimensionCheckResult
+    valid::Bool
+    output_dimension
+    internal_violation::Bool
+    reason::Symbol
+end
+
 """
-    WildcardQuantity{Q<:AbstractQuantity}
+    dimensional_scale_operator_index(options)
 
-A wrapper for a `AbstractQuantity` that allows for a wildcard feature, indicating
-there is a free constant whose dimensions are not yet determined.
-Also stores a flag indicating whether an expression is dimensionally consistent.
+Return the binary multiplication operator index used by the semi-theoretical
+outer scale. The scale is represented as a normal fitted scalar node at the
+root, so it remains compatible with DynamicExpressions and existing constant
+optimization/serialization code.
 """
-struct WildcardQuantity{Q<:AbstractQuantity}
-    val::Q
-    wildcard::Bool
-    violates::Bool
-end
-
-ustrip(w::WildcardQuantity) = ustrip(w.val)
-dimension(w::WildcardQuantity) = dimension(w.val)
-valid(x::WildcardQuantity) = !x.violates
-
-Base.one(::Type{W}) where {Q,W<:WildcardQuantity{Q}} = return W(one(Q), false, false)
-Base.isfinite(w::WildcardQuantity) = isfinite(w.val)
-
-same_dimensions(x::WildcardQuantity, y::WildcardQuantity) = dimension(x) == dimension(y)
-has_no_dims(x::Quantity) = iszero(dimension(x))
-
-# Overload *, /, +, -, ^ for WildcardQuantity, as
-# we want wildcards to propagate through these operations.
-for op in (:(Base.:*), :(Base.:/))
-    @eval function $(op)(l::W, r::W) where {W<:WildcardQuantity}
-        l.violates && return l
-        r.violates && return r
-        return W($(op)(l.val, r.val), l.wildcard || r.wildcard, false)
-    end
-end
-for op in (:(Base.:+), :(Base.:-))
-    @eval function $(op)(l::W, r::W) where {Q,W<:WildcardQuantity{Q}}
-        l.violates && return l
-        r.violates && return r
-        if same_dimensions(l, r)
-            return W($(op)(l.val, r.val), l.wildcard && r.wildcard, false)
-        elseif l.wildcard && r.wildcard
-            return W(
-                constructorof(Q)($(op)(ustrip(l), ustrip(r)), typeof(dimension(l))),
-                true,
-                false,
-            )
-        elseif l.wildcard
-            return W($(op)(constructorof(Q)(ustrip(l), dimension(r)), r.val), false, false)
-        elseif r.wildcard
-            return W($(op)(l.val, constructorof(Q)(ustrip(r), dimension(l))), false, false)
-        else
-            return W(one(Q), false, true)
-        end
-    end
-end
-function Base.:^(l::W, r::W) where {Q,W<:WildcardQuantity{Q}}
-    l.violates && return l
-    r.violates && return r
-    if (has_no_dims(l.val) || l.wildcard) && (has_no_dims(r.val) || r.wildcard)
-        # Require both base and power to be dimensionless:
-        x = ustrip(l)
-        y = ustrip(r)
-        return W(safe_pow(x, y) * one(Q), false, false)
-    else
-        return W(one(Q), false, true)
-    end
-end
-
-function Base.sqrt(l::W) where {W<:WildcardQuantity}
-    return l.violates ? l : W(safe_sqrt(l.val), l.wildcard, false)
-end
-function Base.cbrt(l::W) where {W<:WildcardQuantity}
-    return l.violates ? l : W(cbrt(l.val), l.wildcard, false)
-end
-function Base.abs(l::W) where {W<:WildcardQuantity}
-    return l.violates ? l : W(abs(l.val), l.wildcard, false)
-end
-function Base.inv(l::W) where {W<:WildcardQuantity}
-    return l.violates ? l : W(inv(l.val), l.wildcard, false)
-end
-
-# Define dimensionally-aware evaluation routine:
-@inline function deg0_eval(
-    x::AbstractVector{T},
-    x_units::Vector{Q},
-    t::AbstractExpressionNode{T},
-    allow_wildcards::Bool,
-) where {T,R,Q<:AbstractQuantity{T,R}}
-    if t.constant
-        return WildcardQuantity{Q}(Quantity(t.val, R), allow_wildcards, false)
-    else
-        return WildcardQuantity{Q}(
-            (@inbounds x[t.feature]) * (@inbounds x_units[t.feature]), false, false
-        )
-    end
-end
-@generated function degn_eval(
-    op::F, _arg::W, _args::Vararg{W,Nm1}
-) where {F,Nm1,T,Q<:AbstractQuantity{T},W<:WildcardQuantity{Q}}
-    N = Nm1 + 1
-    quote
-        args = (_arg, _args...)
-        Base.Cartesian.@nextract($N, arg, args)
-        Base.Cartesian.@nexprs($N, i -> arg_i.violates && return arg_i)
-        # ^For N = 2:
-        # ```
-        #      arg_1.violates && return arg_1
-        #      arg_2.violates && return arg_2
-        # ```
-        Base.Cartesian.@nany($N, i -> !isfinite(arg_i)) && return W(one(Q), false, true)
-        # ^For N = 2:
-        # ```
-        #      !isfinite(arg_1) || !isfinite(arg_2) && return W(one(Q), false, true)
-        # ```
-        # COV_EXCL_START
-        Base.Cartesian.@nexprs(
-            $(2^N),
-            i -> begin
-                # Get indices of N-d matrix of types:
-                Base.Cartesian.@nexprs(
-                    $N, j -> lattice_j = compute_lattice(Val($N), Val(i), Val(j))
-                )
-
-                # (e.g., for N = 3, this would be (0, 0, 0), (0, 0, 1), ..., (1, 1, 1))
-                #! format: off
-                if hasmethod(op, Tuple{Base.Cartesian.@ntuple($N, j -> lattice_j == 0 ? W : T)...}) &&
-                        Base.Cartesian.@nall($N, j -> lattice_j == 0 ? true : arg_j.wildcard)
-
-                    # if on last one, we always evaluate (assuming wildcards are on):
-                    if i == $(2^N)
-                        return W(
-                            op(Base.Cartesian.@ntuple($N, j -> ustrip(arg_j))...)::T,
-                            false,
-                            false,
-                        )
-                    else
-                        @maybe_return_call(
-                            W,
-                            op,
-                            Base.Cartesian.@ntuple(
-                                $N, j -> lattice_j == 0 ? arg_j : ustrip(arg_j)
-                            )
-                        )
-                    end
-                end
-                #! format: on
-            end
-        )
-        # COV_EXCL_STOP
-        # ^For N = 2:
-        # ```
-        #     hasmethod(op, Tuple{W,W}) && @maybe_return_call(W, op, (arg_1, arg_2))
-        #     hasmethod(op, Tuple{W,T}) && arg_2.wildcard && @maybe_return_call(W, op, (arg_1, ustrip(arg_2)))
-        #     hasmethod(op, Tuple{T,W}) && arg_1.wildcard && @maybe_return_call(W, op, (ustrip(arg_1), arg_2))
-        #     hasmethod(op, Tuple{T,T}) && arg_1.wildcard && arg_2.wildcard && W(op(ustrip(arg_1), ustrip(arg_2))::T, false, false)
-        # ```
-        return W(one(Q), false, true)
-    end
-end
-@generated function compute_lattice(::Val{N}, ::Val{i}, ::Val{j}) where {N,i,j}
-    return div(i - 1, (2^(N - j))) % 2
-end
-
-function violates_dimensional_constraints_dispatch(
-    tree::AbstractExpressionNode{T,D},
-    x_units::Vector{Q},
-    x::AbstractVector{T},
-    operators,
-    allow_wildcards,
-) where {T,Q<:AbstractQuantity{T},D}
-    #! format: off
-    return tree_mapreduce(
-        leaf -> deg0_eval(x, x_units, leaf, allow_wildcards)::WildcardQuantity{Q},
-        branch -> branch,
-        (branch, children...) -> degn_eval((@inbounds operators.ops[branch.degree][branch.op]), children...)::WildcardQuantity{Q},
-        tree;
-        break_sharing=Val(true),
+function dimensional_scale_operator_index(options::AbstractOptions)
+    idx = findfirst(
+        op -> op === (*) || lowercase(string(op)) in ("*", "mult", "multiply"),
+        options.operators.binops,
     )
-    #! format: on
+    idx === nothing &&
+        throw(ArgumentError(
+            "formula_type=:semi_theoretical requires multiplication (*) in binary_operators " *
+            "to represent the outer coefficient C_dim.",
+        ))
+    return idx
+end
+
+function is_dimensional_scale_wrapper(
+    tree::AbstractExpressionNode, options::AbstractOptions
+)
+    policy = dimension_policy(options)
+    policy === :compatible || return false
+    tree.degree == 2 || return false
+    tree.op == dimensional_scale_operator_index(options) || return false
+    left, right = get_child(tree, 1), get_child(tree, 2)
+    return left.degree == 0 && left.constant && right.degree >= 0
+end
+
+"""
+    wrap_dimensional_scale(tree, options)
+
+Wrap an internal semi-theoretical tree in one fitted scalar coefficient.
+The coefficient is initialized to one and is optimized by the normal constant
+optimization path. Existing wrappers are preserved, making the operation
+idempotent across population, mutation and crossover boundaries.
+"""
+function dimensional_scale_coefficient(
+    tree::AbstractExpressionNode, options::AbstractOptions
+)
+    is_dimensional_scale_wrapper(tree, options) || return nothing
+    return get_child(tree, 1).val
+end
+
+function dimensional_scale_coefficient(ex::AbstractExpression, options::AbstractOptions)
+    return dimensional_scale_coefficient(get_tree(ex), options)
+end
+
+function wrap_dimensional_scale(
+    tree::AbstractExpressionNode{T}, options::AbstractOptions;
+    coefficient::T=one(T),
+) where {T}
+    dimension_policy(options) === :compatible || return tree
+    is_dimensional_scale_wrapper(tree, options) && return tree
+    mult_idx = dimensional_scale_operator_index(options)
+    coefficient_node = constructorof(typeof(tree))(; val=coefficient)
+    return constructorof(typeof(tree))(;
+        op=mult_idx,
+        children=(coefficient_node, tree),
+    )
+end
+
+function wrap_dimensional_scale(
+    ex::AbstractExpression, options::AbstractOptions;
+    coefficient=nothing,
+)
+    dimension_policy(options) === :compatible || return ex
+    tree = get_tree(ex)
+    wrapped = coefficient === nothing ?
+        wrap_dimensional_scale(tree, options) :
+        wrap_dimensional_scale(tree, options; coefficient=coefficient)
+    return with_contents(ex, wrapped)
+end
+
+"""
+    rewrap_dimensional_scale(tree, options; coefficient)
+
+Restore the protected semi-theoretical outer coefficient after an operation
+that may have returned an already wrapped expression. Mutation helpers from
+DynamicExpressions can preserve the wrapper node when copying an expression,
+so calling `wrap_dimensional_scale` directly is not sufficient: its idempotent
+behavior would keep a mutated outer coefficient. This helper always removes
+one existing wrapper and rebuilds it with the supplied coefficient.
+"""
+function rewrap_dimensional_scale(
+    tree::AbstractExpressionNode,
+    options::AbstractOptions;
+    coefficient,
+)
+    return wrap_dimensional_scale(
+        unwrap_dimensional_scale(tree, options),
+        options;
+        coefficient,
+    )
+end
+
+function rewrap_dimensional_scale(
+    ex::AbstractExpression,
+    options::AbstractOptions;
+    coefficient,
+)
+    return wrap_dimensional_scale(
+        unwrap_dimensional_scale(ex, options),
+        options;
+        coefficient,
+    )
+end
+
+"""Remove the protected outer C_dim node before internal tree operators run."""
+function unwrap_dimensional_scale(
+    tree::AbstractExpressionNode, options::AbstractOptions
+)
+    return is_dimensional_scale_wrapper(tree, options) ? get_child(tree, 2) : tree
+end
+
+function unwrap_dimensional_scale(ex::AbstractExpression, options::AbstractOptions)
+    return dimension_policy(options) === :compatible ?
+        with_contents(ex, unwrap_dimensional_scale(get_tree(ex), options)) : ex
+end
+
+"""Return the internal f(X;θ) tree represented by a semi-theoretical member."""
+function internal_dimensional_tree(tree::AbstractExpressionNode, options::AbstractOptions)
+    return unwrap_dimensional_scale(tree, options)
 end
 
 """
@@ -223,10 +163,7 @@ Checks whether an expression violates dimensional constraints.
 function violates_dimensional_constraints(
     tree::AbstractExpressionNode, dataset::Dataset, options::AbstractOptions
 )
-    X = dataset.X
-    return violates_dimensional_constraints(
-        tree, dataset.X_units, dataset.y_units, (@view X[:, 1]), options
-    )
+    return !infer_dimension_static(tree, dataset, options).valid
 end
 function violates_dimensional_constraints(
     tree::AbstractExpression, dataset::Dataset, options::AbstractOptions
@@ -235,25 +172,17 @@ function violates_dimensional_constraints(
 end
 function violates_dimensional_constraints(
     tree::AbstractExpressionNode{T},
-    X_units::AbstractVector{<:Quantity},
-    y_units::Union{Quantity,Nothing},
+    X_dimensions::AbstractVector{<:Quantity},
+    y_dimensions::Union{Quantity,Nothing},
     x::AbstractVector{T},
     options::AbstractOptions,
 ) where {T}
-    allow_wildcards = !(options.dimensionless_constants_only)
-    dimensional_output = violates_dimensional_constraints_dispatch(
-        tree, X_units, x, options.operators, allow_wildcards
-    )
-    # ^ Eventually do this with map_treereduce. However, right now it seems
-    # like we are passing around too many arguments, which slows things down.
-    violates = dimensional_output.violates
-    if y_units !== nothing
-        violates |= (
-            !dimensional_output.wildcard &&
-            dimension(dimensional_output) != dimension(y_units)
-        )
-    end
-    return violates
+    policy = dimension_policy(options)
+    policy === :ignore && return false
+    input_dimensions = [dimension(item) for item in X_dimensions]
+    output_dimension = _infer_dimension_static(tree, input_dimensions, options, T)
+    output_dimension === nothing && return true
+    return y_dimensions !== nothing && output_dimension != dimension(y_dimensions)
 end
 function violates_dimensional_constraints(
     ::AbstractExpressionNode{T},
@@ -262,16 +191,122 @@ function violates_dimensional_constraints(
     ::AbstractVector{T},
     ::AbstractOptions,
 ) where {T}
-    return error("This should never happen. Please submit a bug report.")
-end
-function violates_dimensional_constraints(
-    ::AbstractExpressionNode{T},
-    ::Nothing,
-    ::Nothing,
-    ::AbstractVector{T},
-    ::AbstractOptions,
-) where {T}
-    return false
+    return true
 end
 
+"""Infer an expression dimension using dimension-only quantity placeholders."""
+function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
+    name = lowercase(string(op))
+    quantities = [DynamicQuantities.constructorof(
+        Quantity{T,typeof(first(child_dimensions))}
+    )(one(T), d) for d in child_dimensions]
+    zero_dimension = dimension(quantities[1] / quantities[1])
+    if length(quantities) == 2
+        left, right = child_dimensions
+        if name in ("+", "-", "plus", "sub", "mod")
+            return left == right ? left : nothing
+        elseif name in ("*", "×", "mult", "multiply")
+            return dimension(quantities[1] * quantities[2])
+        elseif name in ("/", "÷")
+            return dimension(quantities[1] / quantities[2])
+        elseif name in ("^", "pow", "safe_pow")
+            child = nodes[2]
+            child.constant || return nothing
+            child_dimensions[2] == zero_dimension || return nothing
+            return dimension(safe_pow(quantities[1], child.val))
+        end
+    elseif length(quantities) == 1
+        child = child_dimensions[1]
+        if name in ("neg", "-", "abs", "relu", "round", "floor", "ceil")
+            return child
+        elseif name in ("sqrt", "safe_sqrt")
+            return dimension(safe_sqrt(quantities[1]))
+        elseif name == "cbrt"
+            return dimension(cbrt(quantities[1]))
+        elseif name == "inv"
+            return dimension(inv(quantities[1]))
+        elseif name in ("sin", "cos", "tan", "sinh", "cosh", "tanh", "asin", "acos", "atan", "exp", "log")
+            return child == zero_dimension ? zero_dimension : nothing
+        end
+    end
+    try
+        result = length(quantities) == 1 ? op(quantities[1]) : op(quantities...)
+        return result isa AbstractQuantity ? dimension(result) : zero_dimension
+    catch error
+        error isa DimensionError || error isa MethodError || rethrow(error)
+        return nothing
+    end
+end
+
+function _infer_dimension_static(tree::AbstractExpressionNode, input_dimensions, options::AbstractOptions, ::Type{T}) where {T}
+    if tree.degree == 0
+        return tree.constant ? dimension(input_dimensions[1] / input_dimensions[1]) :
+            (1 <= tree.feature <= length(input_dimensions) ? input_dimensions[tree.feature] : nothing)
+    end
+    children = [get_child(tree, i) for i in 1:tree.degree]
+    child_dimensions = [_infer_dimension_static(child, input_dimensions, options, T) for child in children]
+    any(isnothing, child_dimensions) && return nothing
+    op = options.operators.ops[tree.degree][tree.op]
+    return _transition_dimension(op, children, child_dimensions, T)
+end
+"""Infer dimensions without reading a data sample.
+
+The previous implementation used the first numeric row while checking a tree.
+That is unsuitable for generation-time rejection because a zero, negative, or
+non-finite first sample can make a structurally valid expression look invalid.
+This routine evaluates the dimension propagation with dimension-valued placeholders.
+"""
+function infer_dimension_static(
+    tree::AbstractExpressionNode{T}, dataset::Dataset, options::AbstractOptions;
+    scope::Symbol=:full,
+) where {T}
+    policy = dimension_policy(options)
+    policy === :ignore &&
+        return DimensionCheckResult(true, nothing, false, :ignored)
+    if policy === :compatible && scope === :full
+        # The public semi-theoretical tree is C_dim * f(X; θ). Validate the
+        # internal expression and let the fitted outer coefficient supply the
+        # remaining output dimension.
+        tree = unwrap_dimensional_scale(tree, options)
+        scope = :internal
+    end
+    X_dimensions = dataset.X_dimensions
+    y_dimensions = dataset.y_dimensions
+    X_dimensions === nothing &&
+        return DimensionCheckResult(false, nothing, true, :missing_input_dimensions)
+    if scope === :full && y_dimensions === nothing
+        return DimensionCheckResult(false, nothing, false, :missing_output_dimension)
+    end
+    input_dimensions = [dimension(dimension_value) for dimension_value in X_dimensions]
+    dimensional_output = _infer_dimension_static(tree, input_dimensions, options, T)
+    dimensional_output === nothing &&
+        return DimensionCheckResult(false, nothing, true, :dimension_constraint)
+    if scope === :full && dimensional_output != dimension(y_dimensions)
+        return DimensionCheckResult(
+            false,
+            dimensional_output,
+            false,
+            :output_dimension_mismatch,
+        )
+    end
+    return DimensionCheckResult(
+        true,
+        dimensional_output,
+        false,
+        :ok,
+    )
+end
+
+infer_dimension_static(tree::AbstractExpression, dataset::Dataset, options::AbstractOptions; kws...) =
+    infer_dimension_static(get_tree(tree), dataset, options; kws...)
+
+"""Validate a candidate according to the active formula type."""
+function validate_search_candidate(
+    tree::Union{AbstractExpression,AbstractExpressionNode},
+    dataset::Dataset,
+    options::AbstractOptions;
+    scope::Symbol=:full,
+)
+    return infer_dimension_static(tree, dataset, options; scope).valid
+end
 end

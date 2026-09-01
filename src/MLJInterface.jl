@@ -141,17 +141,17 @@ A struct referencing types in the `SRFitResult` struct,
 to be used in type inference during MLJ.update to speed up iterative fits.
 """
 Base.@kwdef struct SRFitResultTypes{
-    _T,_X_t,_y_t,_w_t,_state,_X_units,_y_units,_X_units_clean,_y_units_clean
+    _T,_X_t,_y_t,_w_t,_state,_X_dimensions,_y_dimensions,_X_dimensions_clean,_y_dimensions_clean
 }
     T::Type{_T} = Any
     X_t::Type{_X_t} = Any
     y_t::Type{_y_t} = Any
     w_t::Type{_w_t} = Any
     state::Type{_state} = Any
-    X_units::Type{_X_units} = Any
-    y_units::Type{_y_units} = Any
-    X_units_clean::Type{_X_units_clean} = Any
-    y_units_clean::Type{_y_units_clean} = Any
+    X_dimensions::Type{_X_dimensions} = Any
+    y_dimensions::Type{_y_dimensions} = Any
+    X_dimensions_clean::Type{_X_dimensions_clean} = Any
+    y_dimensions_clean::Type{_y_dimensions_clean} = Any
 end
 
 """
@@ -175,8 +175,8 @@ Base.@kwdef struct SRFitResult{
     variable_names::Vector{String}
     y_variable_names::Union{Vector{String},Nothing}
     y_is_table::Bool
-    X_units::XD
-    y_units::YD
+    X_dimensions::XD
+    y_dimensions::YD
     types::TYPES
 end
 
@@ -244,14 +244,14 @@ function _update(
     else
         old_fitresult.types
     end
-    X_t::types.X_t, variable_names, display_variable_names, X_units::types.X_units = get_matrix_and_info(
+    X_t::types.X_t, variable_names, display_variable_names, X_dimensions::types.X_dimensions = get_matrix_and_info(
         X, m.dimensions_type
     )
-    y_t::types.y_t, y_variable_names, y_units::types.y_units = format_input_for(
+    y_t::types.y_t, y_variable_names, y_dimensions::types.y_dimensions = format_input_for(
         m, y, m.dimensions_type
     )
-    X_units_clean::types.X_units_clean = clean_units(X_units)
-    y_units_clean::types.y_units_clean = clean_units(y_units)
+    X_dimensions_clean::types.X_dimensions_clean = clean_dimensions(X_dimensions)
+    y_dimensions_clean::types.y_dimensions_clean = clean_dimensions(y_dimensions)
     w_t::types.w_t = if w !== nothing && isa(m, AbstractMultitargetSRRegressor)
         @assert(isa(w, AbstractVector) && ndims(w) == 1, "Unexpected input for `w`.")
         repeat(w', size(y_t, 1))
@@ -281,8 +281,8 @@ function _update(
         return_state=true,
         run_id=m.run_id,
         loss_type=m.loss_type,
-        X_units=X_units_clean,
-        y_units=y_units_clean,
+        X_dimensions=X_dimensions_clean,
+        y_dimensions=y_dimensions_clean,
         verbosity=verbosity,
         logger=m.logger,
         guesses=m.guesses,
@@ -299,18 +299,18 @@ function _update(
         variable_names=variable_names,
         y_variable_names=y_variable_names,
         y_is_table=_istable(y),
-        X_units=X_units_clean,
-        y_units=y_units_clean,
+        X_dimensions=X_dimensions_clean,
+        y_dimensions=y_dimensions_clean,
         types=SRFitResultTypes(;
             T=hof_eltype(search_state[2]),
             X_t=typeof(X_t),
             y_t=typeof(y_t),
             w_t=typeof(w_t),
             state=typeof(search_state),
-            X_units=typeof(X_units),
-            y_units=typeof(y_units),
-            X_units_clean=typeof(X_units_clean),
-            y_units_clean=typeof(y_units_clean),
+            X_dimensions=typeof(X_dimensions),
+            y_dimensions=typeof(y_dimensions),
+            X_dimensions_clean=typeof(X_dimensions_clean),
+            y_dimensions_clean=typeof(y_dimensions_clean),
         ),
     )::(old_fitresult === nothing ? SRFitResult : typeof(old_fitresult))
     return (fitresult, nothing, full_report(m, fitresult))
@@ -319,15 +319,15 @@ hof_eltype(::Type{H}) where {T,H<:HallOfFame{T}} = T
 hof_eltype(::Type{V}) where {V<:Vector} = hof_eltype(eltype(V))
 hof_eltype(h) = hof_eltype(typeof(h))
 
-function clean_units(units)
-    !isa(units, AbstractDimensions) && error("Unexpected units.")
-    iszero(units) && return nothing
-    return units
+function clean_dimensions(dimensions)
+    !isa(dimensions, AbstractDimensions) && error("Unexpected dimensions.")
+    iszero(dimensions) && return nothing
+    return dimensions
 end
-function clean_units(units::Vector)
-    !all(Base.Fix2(isa, AbstractDimensions), units) && error("Unexpected units.")
-    all(iszero, units) && return nothing
-    return units
+function clean_dimensions(dimensions::Vector)
+    !all(Base.Fix2(isa, AbstractDimensions), dimensions) && error("Unexpected dimensions.")
+    all(iszero, dimensions) && return nothing
+    return dimensions
 end
 
 # Native replacements for MMI's data utilities, which are stubs unless
@@ -423,8 +423,8 @@ function get_matrix_and_info(X, ::Type{D}) where {D}
         (names, copy(names))
     end
     D_promoted = get_dimensions_type(Xm_t, D)
-    Xm_t_strip, X_units = unwrap_units_single(Xm_t, D_promoted)
-    return Xm_t_strip, colnames, display_colnames, X_units
+    Xm_t_strip, X_dimensions = unwrap_dimensions_single(Xm_t, D_promoted)
+    return Xm_t_strip, colnames, display_colnames, X_dimensions
 end
 
 function format_input_for(::AbstractSingletargetSRRegressor, y, ::Type{D}) where {D}
@@ -435,8 +435,8 @@ function format_input_for(::AbstractSingletargetSRRegressor, y, ::Type{D}) where
     y_t = vec(y)
     colnames = nothing
     D_promoted = get_dimensions_type(y_t, D)
-    y_t_strip, y_units = unwrap_units_single(y_t, D_promoted)
-    return y_t_strip, colnames, y_units
+    y_t_strip, y_dimensions = unwrap_dimensions_single(y_t, D_promoted)
+    return y_t_strip, colnames, y_dimensions
 end
 function format_input_for(::AbstractMultitargetSRRegressor, y, ::Type{D}) where {D}
     @assert(
@@ -453,10 +453,10 @@ function validate_variable_names(variable_names, fitresult::SRFitResult)
     )
     return nothing
 end
-function validate_units(X_units, old_X_units)
+function validate_dimensions(X_dimensions, old_X_dimensions)
     @assert(
-        all(X_units .== old_X_units),
-        "Units of new data do not match units of fitted regressor."
+        all(X_dimensions .== old_X_dimensions),
+        "Dimensions of new data do not match dimensions of fitted regressor."
     )
     return nothing
 end
@@ -472,18 +472,18 @@ function prediction_warn()
     @warn "Evaluation failed either due to NaNs detected or due to unfinished search. Using 0s for prediction."
 end
 
-@inline function wrap_units(v, y_units, i::Integer)
-    if y_units === nothing
+@inline function wrap_dimensions(v, y_dimensions, i::Integer)
+    if y_dimensions === nothing
         return v
     else
-        return (yi -> Quantity(yi, y_units[i])).(v)
+        return (yi -> Quantity(yi, y_dimensions[i])).(v)
     end
 end
-@inline function wrap_units(v, y_units, ::Nothing)
-    if y_units === nothing
+@inline function wrap_dimensions(v, y_dimensions, ::Nothing)
+    if y_dimensions === nothing
         return v
     else
-        return (yi -> Quantity(yi, y_units)).(v)
+        return (yi -> Quantity(yi, y_dimensions)).(v)
     end
 end
 
@@ -492,15 +492,15 @@ function prediction_fallback(
 ) where {T}
     prediction_warn()
     out = fill!(similar(Xnew_t, T, axes(Xnew_t, 2)), zero(T))
-    return wrap_units(out, fitresult.y_units, nothing)
+    return wrap_dimensions(out, fitresult.y_dimensions, nothing)
 end
 function prediction_fallback(
     ::Type{T}, ::AbstractMultitargetSRRegressor, Xnew_t, fitresult::SRFitResult, prototype
 ) where {T}
     prediction_warn()
     out_cols = [
-        wrap_units(
-            fill!(similar(Xnew_t, T, axes(Xnew_t, 2)), zero(T)), fitresult.y_units, i
+        wrap_dimensions(
+            fill!(similar(Xnew_t, T, axes(Xnew_t, 2)), zero(T)), fitresult.y_dimensions, i
         ) for i in 1:(fitresult.num_targets)
     ]
     out_matrix = reduce(hcat, out_cols)
@@ -515,23 +515,23 @@ compat_ustrip(A::QuantityArray) = ustrip(A)
 compat_ustrip(A) = ustrip.(A)
 
 """
-    unwrap_units_single(::AbstractArray, ::Type{<:AbstractDimensions})
+    unwrap_dimensions_single(::AbstractArray, ::Type{<:AbstractDimensions})
 
-Remove units from some features in a matrix, and return, as a tuple,
-(1) the matrix with stripped units, and (2) the dimensions for those features.
+Remove quantity scales from features in a matrix, and return, as a tuple,
+(1) the numeric matrix and (2) the dimensions for those features.
 """
-function unwrap_units_single(A::AbstractMatrix, ::Type{D}) where {D}
+function unwrap_dimensions_single(A::AbstractMatrix, ::Type{D}) where {D}
     dims = D[dimension_with_fallback(first(row), D) for row in eachrow(A)]
     @inbounds for (i, row) in enumerate(eachrow(A))
         all(xi -> dimension_with_fallback(xi, D) == dims[i], row) ||
-            error("Inconsistent units in feature $i of matrix.")
+            error("Inconsistent dimensions in feature $i of matrix.")
     end
     return stack(compat_ustrip, eachrow(A); dims=1)::AbstractMatrix, dims
 end
-function unwrap_units_single(v::AbstractVector, ::Type{D}) where {D}
+function unwrap_dimensions_single(v::AbstractVector, ::Type{D}) where {D}
     dims = dimension_with_fallback(first(v), D)
     all(xi -> dimension_with_fallback(xi, D) == dims, v) ||
-        error("Inconsistent units in vector.")
+        error("Inconsistent dimensions in vector.")
     return compat_ustrip(v)::AbstractVector, dims
 end
 
@@ -555,7 +555,7 @@ function eval_tree_mlj(
 ) where {T}
     out, completed = eval_tree_array(tree, X_t, fitresult.options)
     if completed
-        return wrap_units(out, fitresult.y_units, i)
+        return wrap_dimensions(out, fitresult.y_dimensions, i)
     else
         return prediction_fallback(T, m, X_t, fitresult, prototype)
     end
@@ -577,7 +577,7 @@ function _predict(m::M, fitresult, Xnew, idx) where {M<:AbstractSymbolicRegresso
 
     params = full_report(m, fitresult; v_with_strings=Val(false))
     prototype = _istable(Xnew) ? Xnew : nothing
-    Xnew_t, variable_names, _, X_units = get_matrix_and_info(Xnew, m.dimensions_type)
+    Xnew_t, variable_names, _, X_dimensions = get_matrix_and_info(Xnew, m.dimensions_type)
     T = promote_type(eltype(Xnew_t), fitresult.types.T)
 
     if isempty(params.equations) || any(isempty, params.equations)
@@ -585,9 +585,9 @@ function _predict(m::M, fitresult, Xnew, idx) where {M<:AbstractSymbolicRegresso
         return prediction_fallback(T, m, Xnew_t, fitresult, prototype)
     end
 
-    X_units_clean = clean_units(X_units)
+    X_dimensions_clean = clean_dimensions(X_dimensions)
     validate_variable_names(variable_names, fitresult)
-    validate_units(X_units_clean, fitresult.X_units)
+    validate_dimensions(X_dimensions_clean, fitresult.X_dimensions)
 
     _idx = something(idx, params.best_idx)
 
@@ -859,7 +859,8 @@ function tag_with_docstring(model_name::Symbol, description::String, bottom_matt
         a named tuple with keys `data` and `idx` to `predict`. See the Operations
         section for details.
     - `dimensions_type::AbstractDimensions`: The type of dimensions to use when storing
-        the units of the data. By default this is `DynamicQuantities.SymbolicDimensions`.
+        dimension metadata inferred from quantity-valued data. By default this is
+        `DynamicQuantities.SymbolicDimensions`.
     """
 
     bottom = """
@@ -916,12 +917,14 @@ eval(
 
     - `X` is any table of input features (eg, a `DataFrame`) whose columns are of scitype
       `Continuous`; check column scitypes with `schema(X)`. Variable names in discovered
-      expressions will be taken from the column names of `X`, if available. Units in columns
-      of `X` (use `DynamicQuantities` for units) will trigger dimensional analysis to be used.
+      expressions will be taken from the column names of `X`, if available.
+      Quantity-valued columns (using `DynamicQuantities`) contribute dimension metadata
+      to the search; plain numeric columns remain dimensionless unless explicit
+      `X_dimensions` metadata is supplied to `equation_search`.
 
     - `y` is the target, which can be any `AbstractVector` whose element scitype is
-        `Continuous`; check the scitype with `scitype(y)`. Units in `y` (use `DynamicQuantities`
-        for units) will trigger dimensional analysis to be used.
+        `Continuous`; check the scitype with `scitype(y)`. Quantity-valued targets
+        contribute dimension metadata in the same way.
 
     - `w` is the observation weights which can either be `nothing` (default) or an
       `AbstractVector` whose element scitype is `Count` or `Continuous`.
@@ -991,7 +994,7 @@ eval(
     println("Equation used:", r.equation_strings[r.best_idx])
     ```
 
-    With units and variable names:
+    With quantity-valued data and variable names:
 
     ```julia
     using MLJ
@@ -1044,12 +1047,13 @@ eval(
 
     - `X` is any table of input features (eg, a `DataFrame`) whose columns are of scitype
     `Continuous`; check column scitypes with `schema(X)`. Variable names in discovered
-    expressions will be taken from the column names of `X`, if available. Units in columns
-    of `X` (use `DynamicQuantities` for units) will trigger dimensional analysis to be used.
+    expressions will be taken from the column names of `X`, if available.
+    Quantity-valued columns (using `DynamicQuantities`) contribute dimension metadata
+    to the search.
 
     - `y` is the target, which can be any table of target variables whose element
-      scitype is `Continuous`; check the scitype with `schema(y)`. Units in columns of
-      `y` (use `DynamicQuantities` for units) will trigger dimensional analysis to be used.
+      scitype is `Continuous`; check the scitype with `schema(y)`. Quantity-valued
+      targets contribute dimension metadata.
 
     - `w` is the observation weights which can either be `nothing` (default) or an
       `AbstractVector` whose element scitype is `Count` or `Continuous`. The same

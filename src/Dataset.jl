@@ -5,7 +5,7 @@ using DynamicQuantities: Quantity
 
 using ..UtilsModule: subscriptify, get_base_type
 using ..ProgramConstantsModule: DATA_TYPE, LOSS_TYPE
-using ...InterfaceDynamicQuantitiesModule: get_si_units, get_sym_units
+using ...InterfaceDynamicQuantitiesModule: get_dimensions, get_symbolic_dimensions
 
 """
     Dataset{T<:DATA_TYPE,L<:LOSS_TYPE}
@@ -41,13 +41,13 @@ abstract type Dataset{T<:DATA_TYPE,L<:LOSS_TYPE} end
 - `display_variable_names::Array{String,1}`: A version of `variable_names`
     but for printing to the terminal (e.g., with unicode versions).
 - `y_variable_name::String`: The name of the output variable.
-- `X_units`: Unit information of `X`. When used, this is a vector
+- `X_dimensions`: Dimension information of `X`. When used, this is a vector
     of `DynamicQuantities.Quantity{<:Any,<:Dimensions}` with shape `(nfeatures,)`.
-- `y_units`: Unit information of `y`. When used, this is a single
+- `y_dimensions`: Dimension information of `y`. When used, this is a single
     `DynamicQuantities.Quantity{<:Any,<:Dimensions}`.
-- `X_sym_units`: Unit information of `X`. When used, this is a vector
+- `X_sym_dimensions`: Dimension information of `X` for symbolic display.
     of `DynamicQuantities.Quantity{<:Any,<:SymbolicDimensions}` with shape `(nfeatures,)`.
-- `y_sym_units`: Unit information of `y`. When used, this is a single
+- `y_sym_dimensions`: Dimension information of `y` for symbolic display.
     `DynamicQuantities.Quantity{<:Any,<:SymbolicDimensions}`.
 """
 mutable struct BasicDataset{
@@ -75,10 +75,10 @@ mutable struct BasicDataset{
     const variable_names::Array{String,1}
     const display_variable_names::Array{String,1}
     const y_variable_name::String
-    const X_units::XU
-    const y_units::YU
-    const X_sym_units::XUS
-    const y_sym_units::YUS
+    const X_dimensions::XU
+    const y_dimensions::YU
+    const X_sym_dimensions::XUS
+    const y_sym_dimensions::YUS
 end
 
 """
@@ -122,8 +122,8 @@ dataset_fraction(d::SubDataset) = d.n / get_full_dataset(d).n
             variable_names::Union{Array{String, 1}, Nothing}=nothing,
             y_variable_name::Union{String,Nothing}=nothing,
             extra::NamedTuple=NamedTuple(),
-            X_units::Union{AbstractVector, Nothing}=nothing,
-            y_units=nothing,
+            X_dimensions::Union{AbstractVector, Nothing}=nothing,
+            y_dimensions=nothing,
     ) where {T<:DATA_TYPE}
 
 Construct a dataset to pass between internal functions. Returns a BasicDataset.
@@ -138,13 +138,26 @@ function Dataset(
     display_variable_names=variable_names,
     y_variable_name::Union{String,Nothing}=nothing,
     extra::NamedTuple=NamedTuple(),
-    X_units::Union{AbstractVector,Nothing}=nothing,
-    y_units=nothing,
+    X_dimensions::Union{AbstractVector,Nothing}=nothing,
+    y_dimensions=nothing,
     # Deprecated:
     kws...,
 ) where {T<:DATA_TYPE,L}
     Base.require_one_based_indexing(X)
     y !== nothing && Base.require_one_based_indexing(y)
+    if !isempty(kws) && !haskey(kws, :loss_type)
+        names = join(string.(keys(kws)), ", ")
+        throw(ArgumentError(
+            "Unknown Dataset keyword argument(s): $(names). Use X_dimensions/y_dimensions; " *
+            "the legacy unit and soft dimensional-constraint keywords have been removed.",
+        ))
+    elseif length(kws) > 1
+        names = join(string.(filter(!=(:loss_type), keys(kws))), ", ")
+        throw(ArgumentError(
+            "Unknown Dataset keyword argument(s): $(names). Use X_dimensions/y_dimensions; " *
+            "the legacy unit and soft dimensional-constraint keywords have been removed.",
+        ))
+    end
     # Deprecation warning:
     if haskey(kws, :loss_type)
         Base.depwarn(
@@ -161,8 +174,8 @@ function Dataset(
             display_variable_names,
             y_variable_name,
             extra,
-            X_units,
-            y_units,
+            X_dimensions,
+            y_dimensions,
         )
     end
 
@@ -197,28 +210,16 @@ function Dataset(
 
     use_baseline = true
     baseline = one(out_loss_type)
-    y_si_units = get_si_units(T, y_units)
-    y_sym_units = get_sym_units(T, y_units)
+    y_dimensions_value = get_dimensions(T, y_dimensions)
+    y_sym_dimensions = get_symbolic_dimensions(T, y_dimensions)
 
-    # TODO: Refactor
-    # This basically just ensures that if the `y` units are set,
-    # then the `X` units are set as well.
-    X_si_units = let (_X = get_si_units(T, X_units))
-        if _X === nothing && y_si_units !== nothing
-            get_si_units(T, [one(T) for _ in 1:nfeatures])
-        else
-            _X
-        end
-    end
-    X_sym_units = let _X = get_sym_units(T, X_units)
-        if _X === nothing && y_sym_units !== nothing
-            get_sym_units(T, [one(T) for _ in 1:nfeatures])
-        else
-            _X
-        end
-    end
+    # Keep omitted input dimensions omitted. Constrained formula types must
+    # receive explicit X_dimensions from the caller; silently replacing them
+    # with dimensionless placeholders would weaken that contract.
+    X_dimensions_value = get_dimensions(T, X_dimensions)
+    X_sym_dimensions = get_symbolic_dimensions(T, X_dimensions)
 
-    error_on_mismatched_size(nfeatures, X_si_units)
+    error_on_mismatched_size(nfeatures, X_dimensions_value)
 
     return BasicDataset{
         T,
@@ -227,10 +228,10 @@ function Dataset(
         typeof(y),
         typeof(weights),
         typeof(extra),
-        typeof(X_si_units),
-        typeof(y_si_units),
-        typeof(X_sym_units),
-        typeof(y_sym_units),
+        typeof(X_dimensions_value),
+        typeof(y_dimensions_value),
+        typeof(X_sym_dimensions),
+        typeof(y_sym_dimensions),
     }(
         X,
         y,
@@ -245,10 +246,10 @@ function Dataset(
         variable_names,
         display_variable_names,
         y_variable_name,
-        X_si_units,
-        y_si_units,
-        X_sym_units,
-        y_sym_units,
+        X_dimensions_value,
+        y_dimensions_value,
+        X_sym_dimensions,
+        y_sym_dimensions,
     )
 end
 
@@ -263,17 +264,17 @@ dataset_fraction(d::BasicDataset) = 1.0
 function error_on_mismatched_size(_, ::Nothing)
     return nothing
 end
-function error_on_mismatched_size(nfeatures, X_units::AbstractVector)
-    if nfeatures != length(X_units)
+function error_on_mismatched_size(nfeatures, X_dimensions::AbstractVector)
+    if nfeatures != length(X_dimensions)
         error(
-            "Number of features ($(nfeatures)) does not match number of units ($(length(X_units)))",
+            "Number of features ($(nfeatures)) does not match number of dimensions ($(length(X_dimensions)))",
         )
     end
     return nothing
 end
 
-function has_units(dataset::Dataset)
-    return dataset.X_units !== nothing || dataset.y_units !== nothing
+function has_dimensions(dataset::Dataset)
+    return dataset.X_dimensions !== nothing || dataset.y_dimensions !== nothing
 end
 
 # Used for Enzyme

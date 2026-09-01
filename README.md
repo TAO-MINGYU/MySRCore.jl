@@ -12,7 +12,7 @@ install the same pinned release from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v0.1.0")
+Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.0.0")
 using MySRCore
 ```
 

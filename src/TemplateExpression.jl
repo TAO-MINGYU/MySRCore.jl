@@ -38,7 +38,7 @@ using ..CoreModule:
     Dataset,
     CoreModule as CM,
     ConstantMutation,
-    has_units,
+    has_dimensions,
     DATA_TYPE,
     AbstractExpressionSpec,
     ExpressionSpecModule as ES
@@ -888,7 +888,7 @@ function DA.violates_dimensional_constraints(
     dataset::Dataset,
     @nospecialize(options::AbstractOptions)
 )
-    @assert !has_units(dataset)
+    @assert !has_dimensions(dataset)
     return false
 end
 function MM.condition_mutation_weights!(

@@ -1,5 +1,15 @@
 # Changelog
 
+## MySRCore 1.0.0 (2026-09-01)
+
+- Released the MySRCore dimension-aware symbolic-regression backend used by MySR
+  1.0.0.
+- Added formula-type-driven empirical, semi_theoretical, and theoretical dimension
+  policies, dimensional initial tree generation, and the semi-theoretical C_dim
+  scale wrapper.
+- Removed legacy soft dimensional-constraint parameters and standardized the public
+  metadata interface on X_dimensions and y_dimensions.
+
 ## MySRCore 0.1.0 (2026-08-27)
 
 - Established the independent `MySRCore` package name, UUID, and wrapper module.

@@ -34,6 +34,7 @@ using ..CoreModule:
     MaybeTrace,
     max_features,
     dataset_fraction,
+    dimension_policy,
     AbstractPlugin,
     MutationEvent,
     on_mutation_end!,
@@ -61,6 +62,12 @@ using ..MutationFunctionsModule:
     randomly_rotate_tree!,
     randomize_tree,
     backsolve_rewrite_random_node
+using ..DimensionGenerationModule: gen_random_tree_dimensional
+using ..DimensionalAnalysisModule:
+    unwrap_dimensional_scale,
+    wrap_dimensional_scale,
+    rewrap_dimensional_scale,
+    dimensional_scale_coefficient
 using ..ConstantOptimizationModule: optimize_constants
 using ..TracingModule:
     trace_identity_mutation!, trace_mutation_result!, trace_mutation_type!
@@ -355,7 +362,11 @@ function _next_generation(
     successful_mutation = false
     attempts = 0
     max_attempts = 10
-    node_storage = allocate_container(member.tree)
+    mutation_base = unwrap_dimensional_scale(member.tree, options)
+    dimensional_coefficient = something(
+        dimensional_scale_coefficient(member.tree, options), one(T)
+    )
+    node_storage = allocate_container(mutation_base)
 
     mut_context = prepare_mutation_context(mutation_choice)
     if !isnothing(mut_context)
@@ -372,7 +383,7 @@ function _next_generation(
     # local tree
     rtree = Ref{N}()
     while (!successful_mutation) && attempts < max_attempts
-        rtree[] = copy_into!(node_storage, member.tree)
+        rtree[] = copy_into!(node_storage, mutation_base)
 
         mutation_result = mutate!(
             rtree[],
@@ -399,6 +410,50 @@ function _next_generation(
                 mutation_result.member isa P,
                 "Mutation result must return a `PopMember` if `return_immediately` is true"
             )
+            # Simplify/optimize mutations bypass the ordinary tree-return path.
+            # They must still pass the same dimensional gate before becoming a
+            # population member.
+            immediate_member = mutation_result.member::P
+            if dimension_policy(options) === :compatible
+                immediate_tree = wrap_dimensional_scale(
+                    immediate_member.tree, options; coefficient=dimensional_coefficient
+                )
+                immediate_member = create_child(
+                    member,
+                    immediate_tree,
+                    immediate_member.cost,
+                    immediate_member.loss,
+                    options;
+                    complexity=compute_complexity(immediate_tree, options),
+                    parent_ref=parent_ref,
+                )::P
+            end
+            if !check_constraints(
+                immediate_member.tree, dataset, options, curmaxsize
+            )
+                trace_mutation_result!(tmp_trace, "reject", "failed_constraint_check")
+                _fire_on_mutation_end!(
+                    options,
+                    plugin_states,
+                    mutation_choice,
+                    MutationEvent(
+                        false, before_cost, nothing, before_loss, nothing, mutation_idx
+                    ),
+                    dataset,
+                )
+                return (
+                    create_child(
+                        member,
+                        member.tree,
+                        before_cost,
+                        before_loss,
+                        options;
+                        parent_ref=parent_ref,
+                    ),
+                    false,
+                    num_evals,
+                )
+            end
             _fire_on_mutation_end!(
                 options,
                 plugin_states,
@@ -406,21 +461,25 @@ function _next_generation(
                 MutationEvent(
                     true,
                     before_cost,
-                    mutation_result.member.cost,
+                    immediate_member.cost,
                     before_loss,
-                    mutation_result.member.loss,
+                    immediate_member.loss,
                     mutation_idx,
                 ),
                 dataset,
             )
-            return mutation_result.member::P, true, num_evals
+            return immediate_member, true, num_evals
         else
             @assert(
                 mutation_result.tree isa N,
                 "Mutation result must return a tree if `return_immediately` is false"
             )
-            rtree[] = mutation_result.tree::N
-            successful_mutation = check_constraints(rtree[], options, curmaxsize)
+            rtree[] = rewrap_dimensional_scale(
+                mutation_result.tree::N, options; coefficient=dimensional_coefficient
+            )
+            successful_mutation = check_constraints(
+                rtree[], dataset, options, curmaxsize
+            )
             attempts += 1
         end
     end
@@ -440,7 +499,7 @@ function _next_generation(
         return (
             create_child(
                 member,
-                copy_into!(node_storage, member.tree),
+                member.tree,
                 before_cost,
                 before_loss,
                 options;
@@ -468,7 +527,7 @@ function _next_generation(
         return (
             create_child(
                 member,
-                copy_into!(node_storage, member.tree),
+                member.tree,
                 before_cost,
                 before_loss,
                 options;
@@ -501,7 +560,7 @@ function _next_generation(
         return (
             create_child(
                 member,
-                copy_into!(node_storage, member.tree),
+                member.tree,
                 before_cost,
                 before_loss,
                 options;
@@ -774,11 +833,15 @@ function mutate!(
     ::RandomizeMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    dataset::Dataset,
     curmaxsize,
     nfeatures,
     kws...,
 ) where {T,N<:AbstractExpression{T},P<:AbstractPopMember}
-    new_tree = randomize_tree(new_tree, curmaxsize, options, nfeatures)
+    typed_tree = gen_random_tree_dimensional(
+        dataset, options, 1, nfeatures, T; max_nodes=curmaxsize
+    )
+    new_tree = something(typed_tree, randomize_tree(new_tree, curmaxsize, options, nfeatures))
     trace_mutation_type!(trace, "randomize")
     return MutationResult{N,P}(; tree=new_tree)
 end

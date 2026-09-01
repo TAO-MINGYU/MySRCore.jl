@@ -404,10 +404,10 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     this is set equal to the maxsize.
 - `parsimony`: A multiplicative factor for how much complexity is
     punished.
-- `dimensional_constraint_penalty`: An additive factor if the dimensional
-    constraint is violated.
-- `dimensionless_constants_only`: Whether to only allow dimensionless
-    constants.
+- `formula_type`: MySR dimensional search policy. Use `:empirical` to skip
+  dimensional rejection, `:semi_theoretical` to enforce dimensional validity
+  inside `f(X; θ)` with an external fitted scale, or `:theoretical` to enforce
+  dimensional validity and target-dimension equality for the complete tree.
 - `use_frequency`: Whether to use a parsimony that adapts to the
     relative proportion of equations at each complexity; this will
     ensure that there are a balanced number of equations considered
@@ -437,6 +437,19 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     equations at the end of each cycle.
 - `fraction_replaced_guesses`: What fraction to replace with user-provided
     guess expressions at the end of each cycle.
+- `rnn_gpsr_seeding`: Enable data-informed initial population seeding with an
+    external recurrent expression generator followed by bounded GP-SR pre-evolution.
+- `rnn_gpsr_seed_fraction`: Fraction of every formal initial population filled
+    from the RNN-GPSR seed pool. Remaining members retain random initialization.
+- `rnn_gpsr_candidate_count`: Number of evaluated expression sequences used to
+    fit the recurrent generator.
+- `rnn_gpsr_proposal_count`: Number of expression sequences requested from the
+    recurrent generator in each feedback round.
+- `rnn_gpsr_cycles`: Number of regularized GP-SR cycles per neural/GP feedback round.
+- `rnn_gpsr_rounds`: Number of recurrent-generator to GP-SR to elite-feedback rounds.
+- `rnn_gpsr_quality_gate`: Whether to evaluate a random control group under the same
+    candidate budget and retain the group with better real-loss quality before GP-SR.
+- `rnn_gpsr_maxsize`: Maximum expression complexity during RNN-GPSR seeding.
 - `should_simplify`: Whether to simplify equations. If you
     pass a custom objective, this will be set to `false`.
 - `should_optimize_constants`: Whether to use an optimization algorithm
@@ -572,8 +585,7 @@ $(OPTION_DESCRIPTIONS)
     @nospecialize(loss_function::Union{Function,Nothing} = nothing),
     @nospecialize(loss_function_expression::Union{Function,Nothing} = nothing),
     ###           [model_selection - only used in MLJ interface]
-    @nospecialize(dimensional_constraint_penalty::Union{Nothing,Real} = nothing),
-    ###           dimensionless_constants_only
+    @nospecialize(formula_type::Union{Symbol,AbstractString}=:empirical),
     ## 4. Working with Complexities:
     @nospecialize(parsimony::Union{Nothing,Real} = nothing),
     @nospecialize(constraints = nothing),
@@ -652,7 +664,6 @@ $(OPTION_DESCRIPTIONS)
     ## 1. Search Space:
     ## 2. Setting the Search Size:
     ## 3. The Objective:
-    dimensionless_constants_only::Bool=false,
     loss_scale::Symbol=:log,
     ## 4. Working with Complexities:
     complexity_mapping::Union{Function,ComplexityMapping,Nothing}=nothing,
@@ -680,6 +691,14 @@ $(OPTION_DESCRIPTIONS)
     fraction_replaced::Union{Real,Nothing}=nothing,
     fraction_replaced_hof::Union{Real,Nothing}=nothing,
     fraction_replaced_guesses::Union{Real,Nothing}=nothing,
+    rnn_gpsr_seeding::Bool=false,
+    rnn_gpsr_seed_fraction::Real=0.5,
+    rnn_gpsr_candidate_count::Integer=128,
+    rnn_gpsr_proposal_count::Integer=128,
+    rnn_gpsr_cycles::Integer=4,
+    rnn_gpsr_rounds::Integer=2,
+    rnn_gpsr_quality_gate::Bool=true,
+    rnn_gpsr_maxsize::Union{Nothing,Integer}=nothing,
     topn::Union{Nothing,Integer}=nothing,
     ## 9. Data Preprocessing:
     ## 10. Stopping Criteria:
@@ -867,6 +886,7 @@ $(OPTION_DESCRIPTIONS)
     topn = something(topn, _default_options.topn)
     batching = something(batching, _default_options.batching)
     batch_size = something(batch_size, Some(_default_options.batch_size))
+    rnn_gpsr_maxsize = something(rnn_gpsr_maxsize, min(maxsize, 7))
     if !user_provided_operators
         binary_operators = something(binary_operators, _default_options.operators.ops[2])
         unary_operators = something(unary_operators, _default_options.operators.ops[1])
@@ -889,6 +909,18 @@ $(OPTION_DESCRIPTIONS)
     @assert warmup_maxsize_by >= 0.0f0
     @assert tournament_selection_n < population_size "`tournament_selection_n` must be less than `population_size`"
     @assert loss_scale in (:log, :linear) "`loss_scale` must be either log or linear"
+    0.0 <= rnn_gpsr_seed_fraction <= 1.0 ||
+        throw(ArgumentError("`rnn_gpsr_seed_fraction` must be in [0, 1]."))
+    rnn_gpsr_candidate_count >= 8 ||
+        throw(ArgumentError("`rnn_gpsr_candidate_count` must be at least 8."))
+    rnn_gpsr_proposal_count >= 1 ||
+        throw(ArgumentError("`rnn_gpsr_proposal_count` must be positive."))
+    rnn_gpsr_cycles >= 0 ||
+        throw(ArgumentError("`rnn_gpsr_cycles` must be non-negative."))
+    rnn_gpsr_rounds >= 1 ||
+        throw(ArgumentError("`rnn_gpsr_rounds` must be positive."))
+    1 <= rnn_gpsr_maxsize <= maxsize ||
+        throw(ArgumentError("`rnn_gpsr_maxsize` must be in [1, maxsize]."))
 
     # Make sure nested_constraints contains functions within our operator set:
     _nested_constraints = if user_provided_operators
@@ -1187,6 +1219,18 @@ $(OPTION_DESCRIPTIONS)
         throw(ArgumentError("`batch_size` must be at least 1."))
     batch_size = batch_size === nothing ? nothing : Int(batch_size)
 
+    formula_type = if formula_type isa AbstractString
+        Symbol(formula_type)
+    else
+        formula_type
+    end
+    formula_type in (:empirical, :semi_theoretical, :theoretical) ||
+        throw(
+            ArgumentError(
+                "`formula_type` must be one of :empirical, :semi_theoretical, or :theoretical.",
+            ),
+        )
+
     nops = map(length, operators.ops)
 
     options = Options{
@@ -1215,8 +1259,7 @@ $(OPTION_DESCRIPTIONS)
         tournament_selection_n,
         tournament_selection_p,
         parsimony,
-        dimensional_constraint_penalty,
-        dimensionless_constants_only,
+        formula_type,
         maxsize,
         maxdepth,
         Val(turbo),
@@ -1242,6 +1285,14 @@ $(OPTION_DESCRIPTIONS)
         fraction_replaced,
         fraction_replaced_hof,
         fraction_replaced_guesses,
+        rnn_gpsr_seeding,
+        Float64(rnn_gpsr_seed_fraction),
+        Int(rnn_gpsr_candidate_count),
+        Int(rnn_gpsr_proposal_count),
+        Int(rnn_gpsr_cycles),
+        Int(rnn_gpsr_rounds),
+        rnn_gpsr_quality_gate,
+        Int(rnn_gpsr_maxsize),
         topn,
         verbosity,
         Val(print_precision),

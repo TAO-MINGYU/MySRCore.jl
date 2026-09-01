@@ -9,6 +9,7 @@ import ..CoreModule.OptionsModule: default_popmember_type
 import ..ComplexityModule: compute_complexity
 using ..UtilsModule: get_birth_order
 using ..LossFunctionsModule: eval_cost
+using ..DimensionalAnalysisModule: wrap_dimensional_scale
 
 """
     AbstractPopMember{T<:DATA_TYPE,L<:LOSS_TYPE,N<:AbstractExpression{T}}
@@ -151,6 +152,7 @@ function PopMember(
     parent::Int=-1,
     deterministic=nothing,
 ) where {T<:DATA_TYPE,L<:LOSS_TYPE}
+    tree = wrap_dimensional_scale(tree, options)
     ex = create_expression(tree, options, dataset)
     set_complexity = complexity === nothing ? compute_complexity(ex, options) : complexity
     @assert set_complexity != -1

@@ -21,7 +21,7 @@ using .DatasetModule:
     BasicDataset,
     SubDataset,
     is_weighted,
-    has_units,
+    has_dimensions,
     max_features,
     batch,
     get_indices,
@@ -59,6 +59,7 @@ using .OptionsStructModule:
     use_batching,
     get_batch_size,
     batching_required,
+    dimension_policy,
     WarmStartIncompatibleError,
     check_warm_start_compatibility
 using .OperatorsModule:

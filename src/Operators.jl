@@ -74,7 +74,7 @@ end
 function safe_sqrt(x::T)::T where {T<:FloatOrDual}
     return x >= zero(x) ? sqrt(x) : T(NaN)
 end
-# TODO: Should the above be made more generic, for, e.g., compatibility with units?
+# TODO: Should the above be made more generic for dimension metadata?
 
 # Do not change the names of these operators, as
 # they have special use in simplifications and printing.

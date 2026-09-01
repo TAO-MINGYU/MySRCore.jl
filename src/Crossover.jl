@@ -16,6 +16,10 @@ using ..LossFunctionsModule: eval_cost
 using ..CheckConstraintsModule: check_constraints
 using ..PopMemberModule: AbstractPopMember, create_child
 using ..MutationFunctionsModule: crossover_trees
+using ..DimensionalAnalysisModule:
+    unwrap_dimensional_scale,
+    wrap_dimensional_scale,
+    dimensional_scale_coefficient
 using ..MutateModule: _sample_mutation
 using ..TracingModule: trace_mutation_result!, trace_mutation_type!
 
@@ -90,7 +94,13 @@ function crossover(
     trace::MaybeTrace,
     kws...,
 ) where {T,L,N<:AbstractExpression,P<:AbstractPopMember{T,L,N}}
-    child_tree1, child_tree2 = crossover_trees(member1.tree, member2.tree)
+    parent_tree1 = unwrap_dimensional_scale(member1.tree, options)
+    parent_tree2 = unwrap_dimensional_scale(member2.tree, options)
+    coefficient1 = something(dimensional_scale_coefficient(member1.tree, options), one(T))
+    coefficient2 = something(dimensional_scale_coefficient(member2.tree, options), one(T))
+    child_tree1, child_tree2 = crossover_trees(parent_tree1, parent_tree2)
+    child_tree1 = wrap_dimensional_scale(child_tree1, options; coefficient=coefficient1)
+    child_tree2 = wrap_dimensional_scale(child_tree2, options; coefficient=coefficient2)
     trace_mutation_type!(trace, "subtree_crossover")
     return CrossoverResult{N}(; child1=child_tree1, child2=child_tree2)
 end
@@ -180,8 +190,8 @@ function _crossover_generation(
         afterSize1 = compute_complexity(child_tree1, options)
         afterSize2 = compute_complexity(child_tree2, options)
         # Both trees satisfy constraints
-        if check_constraints(child_tree1, options, curmaxsize, afterSize1) &&
-            check_constraints(child_tree2, options, curmaxsize, afterSize2)
+        if check_constraints(child_tree1, dataset, options, curmaxsize, afterSize1) &&
+            check_constraints(child_tree2, dataset, options, curmaxsize, afterSize2)
             break
         end
         if num_tries >= max_tries

@@ -15,10 +15,14 @@ using ..CoreModule:
     on_cycle_end!
 using ..PopMemberModule: generate_reference
 using ..PopulationModule: Population, finalize_costs
-using ..HallOfFameModule: HallOfFame, _update_hall_of_fame_unchecked!
+using ..HallOfFameModule: HallOfFame, update_hall_of_fame!
 using ..RegularizedEvolutionModule: reg_evol_cycle
 using ..LossFunctionsModule: create_eval_context, eval_cost
 using ..ConstantOptimizationModule: optimize_constants
+using ..DimensionalAnalysisModule:
+    unwrap_dimensional_scale,
+    wrap_dimensional_scale,
+    dimensional_scale_coefficient
 using ..TracingModule: trace_optimization!
 
 # Cycle through regularized evolution many times,
@@ -60,7 +64,7 @@ function s_r_cycle(
             eval_context,
         )
         num_evals += tmp_num_evals
-        _update_hall_of_fame_unchecked!(best_examples_seen, pop.members, options)
+        update_hall_of_fame!(best_examples_seen, pop.members, batched_dataset, options)
         strictmap(options.plugins, plugin_states) do plugin, pstate
             return on_cycle_end!(
                 pstate, plugin, pop, batched_dataset, best_examples_seen, options
@@ -88,10 +92,14 @@ function optimize_and_simplify_population(
 
     @threads_if should_thread for j in 1:(pop.n)
         if options.should_simplify
-            tree = pop.members[j].tree
+            member_tree = pop.members[j].tree
+            coefficient = dimensional_scale_coefficient(member_tree, options)
+            tree = unwrap_dimensional_scale(member_tree, options)
             tree = simplify_tree!(tree, options.operators)
             tree = combine_operators(tree, options.operators)
-            pop.members[j].tree = tree
+            pop.members[j].tree = coefficient === nothing ?
+                wrap_dimensional_scale(tree, options) :
+                wrap_dimensional_scale(tree, options; coefficient=coefficient)
         end
         if options.should_optimize_constants && do_optimization[j]
             # TODO: Might want to do full batch optimization here?

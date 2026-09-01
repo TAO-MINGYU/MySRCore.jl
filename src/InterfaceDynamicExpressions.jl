@@ -209,7 +209,7 @@ function DE.differentiable_eval_tree_array(
     return out::A, complete::Bool
 end
 
-const WILDCARD_UNIT_STRING = "[?]"
+const DIMENSION_PLACEHOLDER_STRING = ""
 
 """
     string_tree(tree::AbstractExpressionNode, options::AbstractOptions; kws...)
@@ -227,8 +227,8 @@ Convert an equation to a string.
     tree::Union{AbstractExpression,AbstractExpressionNode},
     options::AbstractOptions;
     pretty::Bool=false,
-    X_sym_units=nothing,
-    y_sym_units=nothing,
+    X_sym_dimensions=nothing,
+    y_sym_dimensions=nothing,
     variable_names=nothing,
     display_variable_names=variable_names,
     kws...,
@@ -244,18 +244,12 @@ Convert an equation to a string.
         )
     end
 
-    if X_sym_units !== nothing || y_sym_units !== nothing
+    if X_sym_dimensions !== nothing || y_sym_dimensions !== nothing
         return DE.string_tree(
             tree,
             DE.get_operators(tree, options);
-            f_variable=Fix{3}(string_variable, X_sym_units),
-            f_constant=let
-                unit_placeholder =
-                    options.dimensionless_constants_only ? "" : WILDCARD_UNIT_STRING
-                Fix{2}(
-                    Fix{3}(string_constant, unit_placeholder), options.v_print_precision
-                )
-            end,
+            f_variable=Fix{3}(string_variable, X_sym_dimensions),
+            f_constant=Fix{2}(Fix{3}(string_constant, DIMENSION_PLACEHOLDER_STRING), options.v_print_precision),
             variable_names=display_variable_names,
             pretty,
             kws...,
@@ -279,22 +273,22 @@ function string_variable_raw(feature, variable_names)
         return variable_names[feature]
     end
 end
-function string_variable(feature, variable_names, variable_units=nothing)
+function string_variable(feature, variable_names, variable_dimensions=nothing)
     base = if variable_names === nothing || feature > length(variable_names)
         "x" * subscriptify(feature)
     else
         variable_names[feature]
     end
-    if variable_units !== nothing
-        base *= format_dimensions(variable_units[feature])
+    if variable_dimensions !== nothing
+        base *= format_dimensions(variable_dimensions[feature])
     end
     return base
 end
-function string_constant(val, ::Val{precision}, unit_placeholder) where {precision}
+function string_constant(val, ::Val{precision}, dimension_suffix) where {precision}
     if typeof(val) <: Real
-        return sprint_precision(val, Val(precision)) * unit_placeholder
+        return sprint_precision(val, Val(precision)) * dimension_suffix
     else
-        return "(" * string(val) * ")" * unit_placeholder
+        return "(" * string(val) * ")" * dimension_suffix
     end
 end
 function format_dimensions(::Nothing)

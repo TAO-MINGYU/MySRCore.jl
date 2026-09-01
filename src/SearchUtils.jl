@@ -28,6 +28,7 @@ using ..CoreModule:
     create_expression,
     init_value
 using ..ComplexityModule: compute_complexity
+using ..CheckConstraintsModule: check_constraints
 using ..PopulationModule: Population, _population_without_plugins
 using ..PopMemberModule: PopMember, AbstractPopMember
 using ..HallOfFameModule: HallOfFame, string_dominating_pareto_curve, update_hall_of_fame!
@@ -751,12 +752,14 @@ function construct_datasets(
     variable_names,
     display_variable_names,
     y_variable_names,
-    X_units,
-    y_units,
+    X_dimensions,
+    y_dimensions,
     extra,
     ::Type{L},
 ) where {L}
     nout = size(y, 1)
+    is_single_dimension_vector(value) =
+        value isa AbstractVector && length(value) == 7 && all(item -> item isa Real, value)
     return [
         Dataset(
             X,
@@ -781,8 +784,11 @@ function construct_datasets(
             else
                 y_variable_names
             end,
-            X_units=X_units,
-            y_units=isa(y_units, AbstractVector) ? y_units[j] : y_units,
+            X_dimensions=X_dimensions,
+            y_dimensions=(
+                y_dimensions isa AbstractVector && !is_single_dimension_vector(y_dimensions) ?
+                y_dimensions[j] : y_dimensions
+            ),
             extra=extra,
         ) for j in 1:nout
     ]
@@ -869,6 +875,16 @@ end
                 member, _ = optimize_constants(dataset, member, options)
             end
             member = strip_metadata(member, options, dataset)
+
+            if !check_constraints(member.tree, dataset, options, options.maxsize)
+                expr_str = string_tree(member.tree, options)
+                throw(
+                    ArgumentError(
+                        "Guess expression '$(expr_str)' violates the configured " *
+                        "structural or dimensional constraints.",
+                    ),
+                )
+            end
 
             # Check if guess expression exceeds maxsize and warn
             complexity = compute_complexity(member.tree, options)
