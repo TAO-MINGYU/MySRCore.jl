@@ -1,5 +1,14 @@
 # Changelog
 
+## MySRCore 1.1.0 (2026-09-02)
+
+- Added formula_type-aware RNN-GPSR seeding with a backend-owned dimensional gate,
+  structural bootstrap training, lightweight GPSR evolution, and elite feedback.
+- Added batched proposal handling, configurable feedback budgets, and direct
+  highest-priority injection of validated user guesses into formal populations.
+- Expanded dimensional-generation and population-seeding tests for strict,
+  compatible, and empirical policies.
+
 ## MySRCore 1.0.0 (2026-09-01)
 
 - Released the MySRCore dimension-aware symbolic-regression backend used by MySR

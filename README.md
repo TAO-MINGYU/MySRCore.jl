@@ -1,9 +1,9 @@
 # MySRCore.jl
 
 MySRCore.jl is the Julia algorithm core for MySR, a general-purpose symbolic
-regression project. The package currently establishes a rename-safe baseline around
-SymbolicRegression.jl 2.0.0-beta.8; MySR-specific algorithm changes will be added
-incrementally with focused tests.
+regression project. Version 1.1.0 adds the backend-owned dimensional search and
+RNN-GPSR seeding interfaces while retaining the attributed
+SymbolicRegression.jl 2.0.0-beta.8 algorithm baseline.
 
 ## Installation
 
@@ -12,7 +12,7 @@ install the same pinned release from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.0.0")
+Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.1.0")
 using MySRCore
 ```
 

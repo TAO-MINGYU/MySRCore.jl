@@ -3,10 +3,15 @@ module DimensionGenerationModule
 using Random: AbstractRNG, default_rng, rand, shuffle!
 import DynamicExpressions
 import DynamicQuantities
-using DynamicExpressions: AbstractExpression, AbstractExpressionNode, get_op_name
+using DynamicExpressions:
+    AbstractExpression,
+    AbstractExpressionNode,
+    get_op_name,
+    get_tree
 using DynamicQuantities: DimensionError, dimension
 
 using ..CoreModule: AbstractOptions, Dataset, DATA_TYPE, dimension_policy, sample_value
+using ..CoreModule.OperatorsModule: safe_pow
 
 struct DimensionCandidate
     tree::Any
@@ -26,8 +31,22 @@ function _operator_name(op)
     end
 end
 
+function _is_expected_dimension_failure(error)
+    return error isa DimensionError ||
+        error isa MethodError ||
+        error isa DomainError ||
+        error isa InexactError ||
+        error isa OverflowError ||
+        error isa DimensionMismatch
+end
+
 function _known_transition(
-    op, child_dimensions::Tuple, qtype, scalar_type::Type, dimensionless
+    op,
+    child_dimensions::Tuple,
+    children::Vector{DimensionCandidate},
+    qtype,
+    scalar_type::Type,
+    dimensionless,
 )
     name = _operator_name(op)
     if length(child_dimensions) == 2
@@ -44,8 +63,24 @@ function _known_transition(
                 _dimension_value(qtype, scalar_type, left) /
                 _dimension_value(qtype, scalar_type, right)
             )
-        elseif name in ("^", "pow", "pow_abs")
-            return (left == dimensionless && right == dimensionless) ? dimensionless : nothing
+        elseif name in ("^", "pow", "pow_abs", "safe_pow")
+            exponent_tree = children[2].tree
+            exponent_tree = exponent_tree isa AbstractExpression ?
+                get_tree(exponent_tree) : exponent_tree
+            exponent_tree.degree == 0 || return nothing
+            exponent_tree.constant || return nothing
+            right == dimensionless || return nothing
+            try
+                return dimension(
+                    safe_pow(
+                        _dimension_value(qtype, scalar_type, left),
+                        exponent_tree.val,
+                    )
+                )
+            catch e
+                _is_expected_dimension_failure(e) && return nothing
+                rethrow()
+            end
         elseif name == "mod"
             return left == right ? left : nothing
         else
@@ -70,22 +105,22 @@ function _known_transition(
             try
                 return dimension(sqrt(_dimension_value(qtype, scalar_type, child)))
             catch e
-                (e isa DimensionError || e isa MethodError) && return nothing
-                return nothing
+                _is_expected_dimension_failure(e) && return nothing
+                rethrow()
             end
         elseif name == "cbrt"
             try
                 return dimension(cbrt(_dimension_value(qtype, scalar_type, child)))
             catch e
-                (e isa DimensionError || e isa MethodError) && return nothing
-                return nothing
+                _is_expected_dimension_failure(e) && return nothing
+                rethrow()
             end
         elseif name == "inv"
             try
                 return dimension(inv(_dimension_value(qtype, scalar_type, child)))
             catch e
-                (e isa DimensionError || e isa MethodError) && return nothing
-                return nothing
+                _is_expected_dimension_failure(e) && return nothing
+                rethrow()
             end
         elseif name in (
             "sin", "cos", "tan", "sinh", "cosh", "tanh", "asin", "acos", "atan",
@@ -134,6 +169,10 @@ end
 function _random_composition(rng::AbstractRNG, total::Int, parts::Int)
     total < parts && return nothing
     parts == 1 && return Int[total]
+    if parts == 2
+        first_part = rand(rng, 1:(total - 1))
+        return Int[first_part, total - first_part]
+    end
     available = collect(1:(total - 1))
     shuffle!(rng, available)
     cuts = sort!(available[1:(parts - 1)])
@@ -160,14 +199,19 @@ function _make_operator_candidate(
     output_dimension = _known_transition(
         op,
         Tuple(candidate.output_dimension for candidate in children),
+        children,
         qtype,
         scalar_type,
         dimensionless,
     )
     output_dimension === nothing && return nothing
+    child_trees = [
+        candidate.tree isa AbstractExpression ? get_tree(candidate.tree) : candidate.tree
+        for candidate in children
+    ]
     tree = DynamicExpressions.constructorof(node_type)(;
         op=op_index,
-        children=Tuple(candidate.tree for candidate in children),
+        children=Tuple(child_trees),
     )
     return DimensionCandidate(
         tree,
@@ -248,10 +292,18 @@ function gen_random_tree_dimensional(
         max(1, min(options.maxsize, 1 + length(options.nops) * max(nlength, 1))) :
         max(1, min(options.maxsize, max_nodes))
     leaves = _leaf_candidates(dataset, options, nfeatures, T, rng)
+    target_dimension = policy === :strict ? dimension(dataset.y_dimensions) : nothing
 
     if policy === :strict
-        target = dimension(dataset.y_dimensions)
-        direct = _target_closure(leaves, options, target, qtype, T, budget, dimensionless)
+        direct = _target_closure(
+            leaves,
+            options,
+            target_dimension,
+            qtype,
+            T,
+            budget,
+            dimensionless,
+        )
         direct !== nothing && return direct.tree
     end
 
@@ -287,16 +339,15 @@ function gen_random_tree_dimensional(
             )
             candidate === nothing && continue
             push!(by_size[node_count], candidate)
-            if policy === :strict && candidate.output_dimension == dimension(dataset.y_dimensions)
+            if policy === :strict && candidate.output_dimension == target_dimension
                 return candidate.tree
             end
         end
     end
 
     if policy === :strict
-        target = dimension(dataset.y_dimensions)
         for states in by_size, candidate in states
-            candidate.output_dimension == target && return candidate.tree
+            candidate.output_dimension == target_dimension && return candidate.tree
         end
         return nothing
     end

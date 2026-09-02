@@ -5,9 +5,17 @@ using Statistics: median
 using DynamicExpressions:
     AbstractExpression, AbstractExpressionNode, constructorof, get_tree
 
-using ..CoreModule: AbstractOptions, Dataset, max_features, sample_value
+using ..CoreModule:
+    AbstractOptions,
+    Dataset,
+    max_features,
+    sample_value,
+    dimension_policy
 using ..CheckConstraintsModule: check_constraints
+using ..ComplexityModule: compute_complexity
 using ..MutationFunctionsModule: gen_random_tree_fixed_size
+using ..DimensionGenerationModule: gen_random_tree_dimensional
+using ..DimensionalAnalysisModule: unwrap_dimensional_scale
 using ..PopMemberModule: AbstractPopMember, reset_birth!
 using ..PopulationModule: Population
 using ..SingleIterationModule: s_r_cycle
@@ -27,8 +35,14 @@ function _expression_tokens(expression, options::AbstractOptions, nfeatures::Int
     return tokens
 end
 
-_member_tokens(member::AbstractPopMember, options::AbstractOptions, nfeatures::Int) =
-    _expression_tokens(member.tree, options, nfeatures)
+function _tree_tokens(tree, options::AbstractOptions, nfeatures::Int)
+    internal_tree = dimension_policy(options) === :compatible ?
+        unwrap_dimensional_scale(tree, options) : tree
+    return _expression_tokens(internal_tree, options, nfeatures)
+end
+
+_rnn_dimension_scope(options::AbstractOptions) =
+    dimension_policy(options) === :compatible ? :internal : :full
 
 function _token_arities(options::AbstractOptions, nfeatures::Int)
     arities = zeros(Int, 1 + nfeatures + sum(options.nops))
@@ -92,7 +106,9 @@ end
 
 function _generate_proposal_trees(
     rnn_generator,
-    training_members::AbstractVector{<:AbstractPopMember},
+    training_sequences::AbstractVector{<:AbstractVector{<:Integer}},
+    training_costs::AbstractVector{<:Real},
+    dataset::Dataset,
     ::Type{T},
     options::AbstractOptions,
     nfeatures::Int,
@@ -100,30 +116,78 @@ function _generate_proposal_trees(
     proposal_count::Int,
     seed::Int,
     rng::AbstractRNG,
+    feedback_round::Int=1,
+    training_source::Symbol=:bootstrap_structural,
+    backend_costs_used::Bool=false,
 ) where {T}
     isnothing(rnn_generator) && throw(
         ArgumentError(
             "RNN-GPSR seeding requires an `rnn_generator` callback. " *
             "MySR supplies a PyTorch generator; direct Julia callers may provide " *
-            "a function `(training_sequences, costs, token_arities, " *
-            "proposal_count, max_length, seed) -> token_sequences`.",
+            "a function with arguments training_sequences, costs, token_arities, " *
+            "proposal_count, max_length, seed, formula_type returning token sequences.",
         ),
     )
-    training_sequences = [
-        _member_tokens(member, options, nfeatures) for member in training_members
-    ]
-    training_costs = Float64[
-        isfinite(member.cost) ? member.cost : Inf for member in training_members
-    ]
-    raw_sequences = Base.invokelatest(
+    token_arities = _token_arities(options, nfeatures)
+    raw_sequences = if applicable(
         rnn_generator,
         training_sequences,
         training_costs,
-        _token_arities(options, nfeatures),
+        token_arities,
         proposal_count,
         maxsize,
         seed,
+        options.formula_type,
+        feedback_round,
+        training_source,
+        backend_costs_used,
     )
+        Base.invokelatest(
+            rnn_generator,
+            training_sequences,
+            training_costs,
+            token_arities,
+            proposal_count,
+            maxsize,
+            seed,
+            options.formula_type,
+            feedback_round,
+            training_source,
+            backend_costs_used,
+        )
+    elseif applicable(
+        rnn_generator,
+        training_sequences,
+        training_costs,
+        token_arities,
+        proposal_count,
+        maxsize,
+        seed,
+        options.formula_type,
+    )
+        Base.invokelatest(
+            rnn_generator,
+            training_sequences,
+            training_costs,
+            token_arities,
+            proposal_count,
+            maxsize,
+            seed,
+            options.formula_type,
+        )
+    else
+        # Keep direct Julia callbacks written against the pre-dimension
+        # six-argument prototype working while MySR uses the new contract.
+        Base.invokelatest(
+            rnn_generator,
+            training_sequences,
+            training_costs,
+            token_arities,
+            proposal_count,
+            maxsize,
+            seed,
+        )
+    end
     trees = Any[]
     seen = Set{Any}()
     for raw_sequence in raw_sequences
@@ -139,14 +203,52 @@ function _generate_proposal_trees(
             nothing
         end
         isnothing(tree) && continue
-        check_constraints(tree, options, maxsize) || continue
+        check_constraints(
+            tree,
+            dataset,
+            options,
+            maxsize;
+            scope=_rnn_dimension_scope(options),
+        ) || continue
         push!(trees, tree)
         length(trees) >= proposal_count && break
     end
     while length(trees) < proposal_count
-        push!(trees, _valid_random_tree(T, options, nfeatures, maxsize, rng))
+        push!(trees, _valid_random_tree(dataset, T, options, nfeatures, maxsize, rng))
     end
     return trees
+end
+
+"""Generate the independent grammar/dimension-aware bootstrap corpus for RNN training.
+
+The bootstrap corpus never reads target values, evaluated PopMember costs, HOF
+entries, or formal GPSR results. Its scores are structural priors only; later
+feedback rounds append real costs from lightweight GPSR elites."""
+function _independent_training_corpus(
+    dataset::Dataset{T},
+    options::AbstractOptions,
+    nfeatures::Int,
+    maxsize::Int,
+    rng::AbstractRNG,
+) where {T}
+    requested = max(8, options.rnn_gpsr_candidate_count)
+    sequences = Vector{Vector{Int}}()
+    structural_costs = Float64[]
+    max_attempts = max(100, requested * 20)
+    for _ in 1:max_attempts
+        length(sequences) >= requested && break
+        tree = _valid_random_tree(dataset, T, options, nfeatures, maxsize, rng)
+        tokens = _tree_tokens(tree, options, nfeatures)
+        push!(sequences, tokens)
+        # This is a grammar prior, not a data-fit loss.
+        push!(
+            structural_costs,
+            Float64(compute_complexity(tree, options)) + 1.0e-3 * length(tokens),
+        )
+    end
+    length(sequences) >= 8 ||
+        throw(ArgumentError("Unable to construct the RNN-GPSR bootstrap training corpus."))
+    return sequences, structural_costs
 end
 
 _member_cost(member) = isfinite(member.cost) ? Float64(member.cost) : Inf
@@ -156,7 +258,33 @@ function _population_quality(members::AbstractVector{<:AbstractPopMember})
     return (median(costs), minimum(costs))
 end
 
+function _append_feedback_examples!(
+    training_sequences::Vector{Vector{Int}},
+    training_costs::Vector{Float64},
+    members::AbstractVector{<:AbstractPopMember},
+    options::AbstractOptions,
+    nfeatures::Int,
+)
+    isempty(members) && return 0
+    ordered = sort(collect(members); by=_member_cost)
+    keep = clamp(
+        ceil(Int, length(ordered) * options.rnn_gpsr_feedback_fraction),
+        0,
+        length(ordered),
+    )
+    used = 0
+    for member in Iterators.take(ordered, keep)
+        cost = _member_cost(member)
+        isfinite(cost) || continue
+        push!(training_sequences, _tree_tokens(member.tree, options, nfeatures))
+        push!(training_costs, cost)
+        used += 1
+    end
+    return used
+end
+
 function _valid_random_tree(
+    dataset::Dataset{T},
     ::Type{T},
     options::AbstractOptions,
     nfeatures::Int,
@@ -165,8 +293,26 @@ function _valid_random_tree(
 ) where {T}
     for _ in 1:100
         requested_size = rand(rng, 1:maxsize)
-        tree = gen_random_tree_fixed_size(requested_size, options, nfeatures, T, rng)
-        check_constraints(tree, options, maxsize) && return tree
+        typed_tree = gen_random_tree_dimensional(
+            dataset,
+            options,
+            requested_size,
+            nfeatures,
+            T,
+            rng;
+            max_nodes=requested_size,
+        )
+        tree = something(
+            typed_tree,
+            gen_random_tree_fixed_size(requested_size, options, nfeatures, T, rng),
+        )
+        check_constraints(
+            tree,
+            dataset,
+            options,
+            maxsize;
+            scope=_rnn_dimension_scope(options),
+        ) && return tree
     end
     throw(ArgumentError("Unable to generate a valid RNN-GPSR seed expression."))
 end
@@ -179,7 +325,7 @@ function _valid_random_member(
     maxsize::Int,
     rng::AbstractRNG,
 ) where {T,PM}
-    tree = _valid_random_tree(T, options, nfeatures, maxsize, rng)
+    tree = _valid_random_tree(dataset, T, options, nfeatures, maxsize, rng)
     return constructorof(PM)(
         dataset,
         tree,
@@ -192,19 +338,19 @@ end
 """
     build_rnn_gpsr_seed_pool(dataset, options, plugin_states; rnn_generator, seed_offset=0)
 
-Build a data-informed seed pool in three bounded stages:
+Build an alternating RNN-to-lightweight-GPSR seed pool in bounded stages:
 
-1. generate and evaluate random expression individuals using an RNG derived from
-   `options.seed`;
+1. generate a grammar/dimension-aware structural bootstrap corpus;
 2. ask an external trainable recurrent policy to generate grammar-complete proposal
    sequences, parse and validate them, then compare their best real-loss members with
    a random control group evaluated under the same candidate budget;
-3. evolve the better group with the existing regularized GP-SR cycle and feed its
-   elites into the next recurrent-policy round. Pre-evolution elites are retained so
-   the bounded GP phase cannot discard the best members already found in that round.
+3. evolve the accepted group with the existing regularized GP-SR cycle;
+4. append the best post-GPSR members and their real costs to the next RNN training
+   round, and repeat for `rnn_gpsr_rounds` feedback rounds;
+5. return post-GPSR members for formal population injection.
 
-Returns `(members, evaluations)`. This is an initialization budget and is kept
-separate from the later formal SR cycles.
+Returns `(members, evaluations)`. Structural-corpus construction is not counted as
+a real data evaluation; proposal and lightweight-GPSR evaluations are counted.
 """
 function build_rnn_gpsr_seed_pool(
     dataset::Dataset{T},
@@ -220,23 +366,23 @@ function build_rnn_gpsr_seed_pool(
     base_seed = isnothing(options.seed) ? rand(default_rng(), 0:(typemax(Int32))) : options.seed
     rng = MersenneTwister(base_seed + seed_offset)
 
-    training_count = max(options.population_size, options.rnn_gpsr_candidate_count)
-    training_members = [
-        _valid_random_member(PM, dataset, options, nfeatures, maxsize, rng) for
-        _ in 1:training_count
-    ]
-    evaluations = Float64(training_count)
-
-    sort!(training_members; by=_member_cost)
-    population = Population(copy.(training_members[1:(options.population_size)]))
+    training_sequences, training_costs = _independent_training_corpus(
+        dataset, options, nfeatures, maxsize, rng
+    )
+    evaluations = 0.0
+    seed_pool = AbstractPopMember[]
+    backend_feedback_count = 0
 
     for round_index in 1:(options.rnn_gpsr_rounds)
-        neural_keep = options.population_size
-        proposal_count = max(options.rnn_gpsr_proposal_count, neural_keep)
+        proposal_count = options.rnn_gpsr_proposal_count
+        neural_keep = min(options.population_size, proposal_count)
         generation_seed = base_seed + seed_offset + 1_000_003 * round_index
+        has_backend_feedback = backend_feedback_count > 0
         proposal_trees = _generate_proposal_trees(
             rnn_generator,
-            training_members,
+            training_sequences,
+            training_costs,
+            dataset,
             T,
             options,
             nfeatures,
@@ -244,6 +390,9 @@ function build_rnn_gpsr_seed_pool(
             proposal_count,
             generation_seed,
             rng,
+            round_index,
+            has_backend_feedback ? :backend_gpsr_feedback : :bootstrap_structural,
+            has_backend_feedback,
         )
         neural_members = PM[
             constructorof(PM)(
@@ -272,11 +421,16 @@ function build_rnn_gpsr_seed_pool(
             end
         end
 
-        combined = vcat(training_members, population.members, accepted_members)
-        sort!(combined; by=_member_cost)
-        population = Population(copy.(combined[1:(options.population_size)]))
+        while length(accepted_members) < options.population_size
+            push!(
+                accepted_members,
+                _valid_random_member(PM, dataset, options, nfeatures, maxsize, rng),
+            )
+            evaluations += 1
+        end
+        sort!(accepted_members; by=_member_cost)
+        population = Population(copy.(accepted_members[1:options.population_size]))
         if options.rnn_gpsr_cycles > 0
-            pre_evolution_members = copy.(population.members)
             evolved_population, _, gpsr_evaluations = s_r_cycle(
                 dataset,
                 population,
@@ -288,38 +442,96 @@ function build_rnn_gpsr_seed_pool(
                 plugin_states,
             )
             evaluations += gpsr_evaluations
-            evolution_candidates = vcat(
-                pre_evolution_members, evolved_population.members
+            evolved_members = [
+                copy(member) for member in evolved_population.members if
+                check_constraints(
+                    member.tree,
+                    dataset,
+                    options,
+                    maxsize;
+                    scope=_rnn_dimension_scope(options),
+                )
+            ]
+            append!(seed_pool, evolved_members)
+            feedback_members = isempty(evolved_members) ? accepted_members : evolved_members
+            backend_feedback_count += _append_feedback_examples!(
+                training_sequences,
+                training_costs,
+                feedback_members,
+                options,
+                nfeatures,
             )
-            sort!(evolution_candidates; by=_member_cost)
-            population = Population(
-                copy.(evolution_candidates[1:(options.population_size)])
+        else
+            # Explicitly disabling lightweight GPSR is retained as a smoke/testing
+            # escape hatch; normal RNN-GPSR uses the post-GPSR branch above.
+            append!(seed_pool, copy.(accepted_members))
+            backend_feedback_count += _append_feedback_examples!(
+                training_sequences,
+                training_costs,
+                accepted_members,
+                options,
+                nfeatures,
             )
         end
-        append!(training_members, copy.(population.members))
     end
-    sort!(population.members; by=member -> isfinite(member.cost) ? member.cost : Inf)
-    return (population.members, evaluations)
+    sort!(seed_pool; by=_member_cost)
+    return (seed_pool, evaluations)
 end
 
-"""Replace an exact fraction of a formal initial population with seed-pool members."""
+"""Inject user guesses first, then RNN-GPSR seeds, retaining random members."""
+function inject_initial_seeds!(
+    population::Population,
+    user_seed_members::AbstractVector,
+    rnn_seed_members::AbstractVector,
+    options::AbstractOptions;
+    population_index::Int=1,
+)
+    user_members = if length(user_seed_members) <= population.n
+        user_seed_members
+    else
+        start = (population_index - 1) * population.n + 1
+        stop = min(population_index * population.n, length(user_seed_members))
+        start <= stop ? user_seed_members[start:stop] : user_seed_members[1:0]
+    end
+
+    location = 1
+    for source in user_members
+        population.members[location] = copy(source)
+        reset_birth!(population.members[location]; deterministic=options.deterministic)
+        location += 1
+    end
+
+    remaining = population.n - length(user_members)
+    rnn_count = min(
+        remaining,
+        clamp(round(Int, population.n * options.rnn_gpsr_seed_fraction), 0, population.n),
+    )
+    if rnn_count > 0 && !isempty(rnn_seed_members)
+        offset = (population_index - 1) * max(rnn_count, 1)
+        for index in 1:rnn_count
+            source = rnn_seed_members[mod1(offset + index, length(rnn_seed_members))]
+            population.members[location] = copy(source)
+            reset_birth!(population.members[location]; deterministic=options.deterministic)
+            location += 1
+        end
+    end
+    return population
+end
+
+"""Backward-compatible RNN-only injection helper."""
 function inject_rnn_gpsr_seeds!(
     population::Population,
     seed_members::AbstractVector,
     options::AbstractOptions;
     population_index::Int=1,
 )
-    isempty(seed_members) && return population
-    count = clamp(
-        round(Int, population.n * options.rnn_gpsr_seed_fraction), 0, population.n
+    return inject_initial_seeds!(
+        population,
+        eltype(seed_members)[],
+        seed_members,
+        options;
+        population_index,
     )
-    offset = (population_index - 1) * max(count, 1)
-    for location in 1:count
-        source = seed_members[mod1(offset + location, length(seed_members))]
-        population.members[location] = copy(source)
-        reset_birth!(population.members[location]; deterministic=options.deterministic)
-    end
-    return population
 end
 
 end

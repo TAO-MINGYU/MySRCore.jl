@@ -415,7 +415,10 @@ using .HallOfFameModule:
 using .MutateModule: mutate!, condition_mutation_weights!, MutationResult
 using .CrossoverModule: crossover, CrossoverResult
 using .SingleIterationModule: s_r_cycle, optimize_and_simplify_population
-using .PopulationSeedingModule: build_rnn_gpsr_seed_pool, inject_rnn_gpsr_seeds!
+using .PopulationSeedingModule:
+    build_rnn_gpsr_seed_pool,
+    inject_initial_seeds!,
+    inject_rnn_gpsr_seeds!
 using .ProgressBarsModule: WrappedProgressBar
 using .TracingModule:
     initialize_trace!, new_trace, next_trace_iteration, trace_iteration_start!, write_trace
@@ -572,16 +575,18 @@ which is useful for debugging and profiling.
 - `extra::NamedTuple=NamedTuple()`: Extra information to pass to a custom
     evaluation function. Since this is an arbitrary named tuple, you could pass
     any sort of dataset you wish to here.
-- `guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing}=nothing`: Initial
-    guess equations to seed the search. Examples:
+- `guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing}=nothing`: User
+    equations to inject at the front of formal initial populations. They have priority
+    over RNN-GPSR and random seeds, while still passing structural and dimensional checks.
+    Examples:
     - Single output: `["x1^2 + x2", "sin(x1) * x2"]`
     - Multi-output: `[["x1 + x2"], ["x1 * x2", "x1 - x2"]]`
     Constants will be automatically optimized.
 - `rnn_generator=nothing`: Optional recurrent-policy callback used when
-    `options.rnn_gpsr_seeding=true`. It receives evaluated training token sequences,
-    their costs, token arities, proposal count, maximum length, and a deterministic
-    seed, and returns prefix-token expression sequences. MySR supplies a PyTorch
-    implementation.
+    `options.rnn_gpsr_seeding=true`. It receives training token sequences, their costs,
+    token arities, proposal count, maximum length, deterministic seed, formula type,
+    feedback round, training-source label, and whether backend costs are being used;
+    it returns prefix-token expression sequences. MySR supplies a PyTorch implementation.
 
 # Returns
 - `hallOfFame::HallOfFame`: The best equations seen during the search.
@@ -965,6 +970,7 @@ function _initialize_search!(
             _plugin_states = state.plugin_states[j]
             _worker_plugin_states = state.worker_plugin_states[j][i]
             _dataset = datasets[j]
+            _user_seed_members = state.seed_members[j]
             _seed_pool = rnn_gpsr_seed_pools[j]
             _seed_evals = i == 1 ? rnn_gpsr_seed_evals[j] : 0.0
             _population_index = i
@@ -1004,14 +1010,13 @@ function _initialize_search!(
                             nfeatures=max_features(_dataset, options),
                             plugin_states=_plugin_states,
                         )
-                        if options.rnn_gpsr_seeding
-                            inject_rnn_gpsr_seeds!(
-                                initial_population,
-                                _seed_pool,
-                                options;
-                                population_index=_population_index,
-                            )
-                        end
+                        inject_initial_seeds!(
+                            initial_population,
+                            _user_seed_members,
+                            _seed_pool,
+                            options;
+                            population_index=_population_index,
+                        )
                         (
                             initial_population,
                             HallOfFame(options, _dataset),

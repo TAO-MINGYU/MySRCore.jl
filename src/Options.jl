@@ -437,16 +437,20 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     equations at the end of each cycle.
 - `fraction_replaced_guesses`: What fraction to replace with user-provided
     guess expressions at the end of each cycle.
-- `rnn_gpsr_seeding`: Enable data-informed initial population seeding with an
-    external recurrent expression generator followed by bounded GP-SR pre-evolution.
+- `rnn_gpsr_seeding`: Enable alternating recurrent expression proposals, bounded
+   backend GPSR pre-evolution, and elite feedback between rounds.
 - `rnn_gpsr_seed_fraction`: Fraction of every formal initial population filled
     from the RNN-GPSR seed pool. Remaining members retain random initialization.
-- `rnn_gpsr_candidate_count`: Number of evaluated expression sequences used to
-    fit the recurrent generator.
+- `rnn_gpsr_candidate_count`: Number of grammar/dimension-aware structural
+   sequences used to fit the recurrent generator. These are not evaluated members.
 - `rnn_gpsr_proposal_count`: Number of expression sequences requested from the
     recurrent generator in each feedback round.
-- `rnn_gpsr_cycles`: Number of regularized GP-SR cycles per neural/GP feedback round.
-- `rnn_gpsr_rounds`: Number of recurrent-generator to GP-SR to elite-feedback rounds.
+- `rnn_gpsr_cycles`: Number of regularized GP-SR cycles per recurrent/GPSR
+    feedback round.
+- `rnn_gpsr_rounds`: Number of recurrent-generator → lightweight-GPSR → feedback
+   rounds before formal MySRCore search.
+- `rnn_gpsr_feedback_fraction`: Fraction of the best lightweight-GPSR members
+   appended to the next recurrent training set after each round.
 - `rnn_gpsr_quality_gate`: Whether to evaluate a random control group under the same
     candidate budget and retain the group with better real-loss quality before GP-SR.
 - `rnn_gpsr_maxsize`: Maximum expression complexity during RNN-GPSR seeding.
@@ -697,6 +701,7 @@ $(OPTION_DESCRIPTIONS)
     rnn_gpsr_proposal_count::Integer=128,
     rnn_gpsr_cycles::Integer=4,
     rnn_gpsr_rounds::Integer=2,
+    rnn_gpsr_feedback_fraction::Real=0.2,
     rnn_gpsr_quality_gate::Bool=true,
     rnn_gpsr_maxsize::Union{Nothing,Integer}=nothing,
     topn::Union{Nothing,Integer}=nothing,
@@ -919,6 +924,8 @@ $(OPTION_DESCRIPTIONS)
         throw(ArgumentError("`rnn_gpsr_cycles` must be non-negative."))
     rnn_gpsr_rounds >= 1 ||
         throw(ArgumentError("`rnn_gpsr_rounds` must be positive."))
+    0.0 <= rnn_gpsr_feedback_fraction <= 1.0 ||
+        throw(ArgumentError("`rnn_gpsr_feedback_fraction` must be in [0, 1]."))
     1 <= rnn_gpsr_maxsize <= maxsize ||
         throw(ArgumentError("`rnn_gpsr_maxsize` must be in [1, maxsize]."))
 
@@ -1291,6 +1298,7 @@ $(OPTION_DESCRIPTIONS)
         Int(rnn_gpsr_proposal_count),
         Int(rnn_gpsr_cycles),
         Int(rnn_gpsr_rounds),
+        Float64(rnn_gpsr_feedback_fraction),
         rnn_gpsr_quality_gate,
         Int(rnn_gpsr_maxsize),
         topn,

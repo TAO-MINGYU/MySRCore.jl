@@ -1,5 +1,14 @@
 # Fork changes
 
+## 2026-09-02 - MySRCore 1.1.0
+
+- Added the backend half of formula_type-conditioned RNN-GPSR: dimensional-aware
+  structural seeding, lightweight GPSR feedback, and configurable round budgets.
+- Added batched proposal validation and formal-population injection that keeps
+  validated user guesses ahead of RNN-GPSR and random seeds.
+- Added focused regression tests for dimensional generation, feedback, budgets,
+  non-finite costs, and user-guess priority.
+
 ## 2026-09-01 - MySRCore 1.0.0
 
 - Promoted the MySRCore package to its first stable release for the MySR 1.0.0

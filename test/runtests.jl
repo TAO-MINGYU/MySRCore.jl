@@ -1,6 +1,7 @@
 # MySRCore package-contract tests added to the SymbolicRegression.jl baseline.
 using MySRCore
 using Test
+using DynamicQuantities: dimension
 using Random: MersenneTwister
 
 @testset "MySRCore package identity" begin
@@ -55,6 +56,405 @@ end
     end
 
     @test seeded_frontier(2026) == seeded_frontier(2026)
+end
+
+@testset "RNN-GPSR training corpus is independent of backend member results" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        rnn_gpsr_candidate_count=8,
+        rnn_gpsr_maxsize=5,
+        maxsize=7,
+        seed=2026,
+        deterministic=true,
+        save_to_file=false,
+    )
+    dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1"],
+    )
+    sequences, structural_costs =
+        MySRCore.SymbolicRegression.PopulationSeedingModule._independent_training_corpus(
+            dataset,
+            options,
+            1,
+            5,
+            MersenneTwister(7),
+        )
+    @test length(sequences) == 8
+    @test length(structural_costs) == 8
+    @test all(isfinite, structural_costs)
+end
+
+@testset "RNN-GPSR feeds lightweight GPSR elites into later RNN rounds" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    observed_training_counts = Int[]
+    observed_feedback_rounds = Int[]
+    observed_backend_cost_flags = Bool[]
+    generator(
+        training_sequences,
+        costs,
+        token_arities,
+        count,
+        max_length,
+        seed,
+        formula_type,
+        feedback_round,
+        training_source,
+        backend_costs_used,
+    ) = begin
+        push!(observed_training_counts, length(training_sequences))
+        push!(observed_feedback_rounds, feedback_round)
+        push!(observed_backend_cost_flags, backend_costs_used)
+        [Int[2]]
+    end
+    options = Options(
+        default_plugins=(),
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        rnn_gpsr_seeding=true,
+        rnn_gpsr_candidate_count=8,
+        rnn_gpsr_proposal_count=4,
+        rnn_gpsr_cycles=0,
+        rnn_gpsr_rounds=2,
+        rnn_gpsr_feedback_fraction=0.5,
+        rnn_gpsr_quality_gate=false,
+        rnn_gpsr_maxsize=5,
+        maxsize=7,
+        seed=2026,
+        deterministic=true,
+        save_to_file=false,
+    )
+    equation_search(
+        X,
+        y;
+        niterations=0,
+        options,
+        rnn_generator=generator,
+        parallelism=:serial,
+        progress=false,
+        verbosity=0,
+    )
+    @test observed_training_counts == [8, 10]
+    @test observed_feedback_rounds == [1, 2]
+    @test observed_backend_cost_flags == [false, true]
+end
+
+@testset "RNN-GPSR reports backend feedback only when examples were appended" begin
+    observed_sources = Symbol[]
+    observed_backend_cost_flags = Bool[]
+    generator(
+        training_sequences,
+        costs,
+        token_arities,
+        count,
+        max_length,
+        seed,
+        formula_type,
+        feedback_round,
+        training_source,
+        backend_costs_used,
+    ) = begin
+        push!(observed_sources, training_source)
+        push!(observed_backend_cost_flags, backend_costs_used)
+        [Int[2]]
+    end
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        rnn_gpsr_seeding=true,
+        rnn_gpsr_candidate_count=8,
+        rnn_gpsr_proposal_count=4,
+        rnn_gpsr_cycles=0,
+        rnn_gpsr_rounds=2,
+        rnn_gpsr_feedback_fraction=0.0,
+        rnn_gpsr_quality_gate=false,
+        rnn_gpsr_maxsize=5,
+        maxsize=7,
+        seed=2026,
+        deterministic=true,
+        save_to_file=false,
+    )
+    equation_search(
+        X,
+        y;
+        niterations=0,
+        options,
+        rnn_generator=generator,
+        parallelism=:serial,
+        progress=false,
+        verbosity=0,
+    )
+    @test observed_sources == [:bootstrap_structural, :bootstrap_structural]
+    @test observed_backend_cost_flags == [false, false]
+end
+
+@testset "RNN-GPSR respects the configured proposal budget" begin
+    observed_counts = Int[]
+    generator(training_sequences, costs, token_arities, count, max_length, seed, args...) = begin
+        push!(observed_counts, count)
+        [Int[2]]
+    end
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        populations=1,
+        population_size=20,
+        tournament_selection_n=2,
+        rnn_gpsr_seeding=true,
+        rnn_gpsr_candidate_count=8,
+        rnn_gpsr_proposal_count=4,
+        rnn_gpsr_cycles=0,
+        rnn_gpsr_rounds=1,
+        rnn_gpsr_quality_gate=false,
+        rnn_gpsr_maxsize=5,
+        maxsize=7,
+        seed=2026,
+        deterministic=true,
+        save_to_file=false,
+    )
+    equation_search(
+        X,
+        y;
+        niterations=0,
+        options,
+        rnn_generator=generator,
+        parallelism=:serial,
+        progress=false,
+        verbosity=0,
+    )
+    @test observed_counts == [4]
+
+    empty!(observed_counts)
+    dataset = Dataset(X, y; variable_names=["x1"])
+    _, evaluations =
+        MySRCore.SymbolicRegression.PopulationSeedingModule.build_rnn_gpsr_seed_pool(
+            dataset,
+            options,
+            ();
+            rnn_generator=generator,
+        )
+    @test observed_counts == [4]
+    @test evaluations == options.population_size
+end
+
+@testset "RNN-GPSR feedback count excludes nonfinite members" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(default_plugins=(), maxsize=7, save_to_file=false)
+    dataset = Dataset(X, y; variable_names=["x1"])
+    tree = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    member = PopMember(dataset, tree, options; deterministic=true)
+    member.cost = Inf
+    training_sequences = [Int[2]]
+    training_costs = [1.0]
+    used = MySRCore.SymbolicRegression.PopulationSeedingModule._append_feedback_examples!(
+        training_sequences,
+        training_costs,
+        [member],
+        options,
+        1,
+    )
+    @test used == 0
+    @test training_sequences == [Int[2]]
+    @test training_costs == [1.0]
+end
+
+@testset "User guesses have priority over RNN-GPSR seeds" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        rnn_gpsr_seeding=true,
+        rnn_gpsr_seed_fraction=1.0,
+        maxsize=7,
+        deterministic=true,
+        save_to_file=false,
+    )
+    dataset = Dataset(X, y; variable_names=["x1"])
+    user_tree = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    rnn_tree = parse_expression(
+        "x1 + x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    user_member = PopMember(dataset, user_tree, options; deterministic=true)
+    rnn_member = PopMember(dataset, rnn_tree, options; deterministic=true)
+    population = Population([copy(user_member) for _ in 1:options.population_size])
+
+    MySRCore.SymbolicRegression.PopulationSeedingModule.inject_initial_seeds!(
+        population,
+        [user_member],
+        [rnn_member],
+        options;
+        population_index=1,
+    )
+    @test string_tree(population.members[1].tree, options) == "x1"
+    @test string_tree(population.members[2].tree, options) == "x1 + x1"
+end
+
+@testset "User guesses beyond initial population capacity remain accepted" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        populations=2,
+        population_size=2,
+        tournament_selection_n=1,
+        maxsize=7,
+        deterministic=true,
+        save_to_file=false,
+    )
+    guesses = ["x1", "x1 + x1", "x1 * x1", "x1 + x1 + x1", "x1 * x1 + x1"]
+    hall = equation_search(
+        X,
+        y;
+        niterations=0,
+        options,
+        guesses=guesses,
+        parallelism=:serial,
+        progress=false,
+        verbosity=0,
+    )
+    @test hall isa HallOfFame
+end
+
+@testset "Dimension generator accepts constant powers of dimensional inputs" begin
+    X = reshape(Float64[1, 2, 3], 1, :)
+    y = copy(vec(X) .^ 2)
+    options = Options(
+        formula_type=:theoretical,
+        binary_operators=(^,),
+        default_plugins=(),
+        maxsize=7,
+    )
+    dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1"],
+        X_dimensions=[[1, 0, 0, 0, 0, 0, 0]],
+        y_dimensions=[2, 0, 0, 0, 0, 0, 0],
+    )
+    generation = MySRCore.SymbolicRegression.DimensionGenerationModule
+    qtype = typeof(dataset.X_dimensions[1])
+    dimensionless = dimension(dataset.X_dimensions[1] / dataset.X_dimensions[1])
+    base = generation.DimensionCandidate(
+        parse_expression(
+            "x1";
+            operators=options.operators,
+            variable_names=["x1"],
+            node_type=Node{Float64,2},
+        ),
+        dimension(dataset.X_dimensions[1]),
+        1,
+    )
+    exponent = generation.DimensionCandidate(
+        parse_expression(
+            "2.0";
+            operators=options.operators,
+            variable_names=["x1"],
+            node_type=Node{Float64,2},
+        ),
+        dimensionless,
+        1,
+    )
+    candidate = generation._make_operator_candidate(
+        options.operators.ops[2][1],
+        1,
+        [base, exponent],
+        qtype,
+        Float64,
+        options.node_type,
+        dimensionless,
+    )
+    @test candidate !== nothing
+    @test candidate.output_dimension == dimension(dataset.y_dimensions)
+end
+
+@testset "RNN-GPSR follows formula_type dimensional gate" begin
+    X = reshape(Float64[1, 2, 3], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        formula_type=:theoretical,
+        default_plugins=(),
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        maxsize=7,
+        deterministic=true,
+        save_to_file=false,
+    )
+    dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1"],
+        X_dimensions=[[1, 0, 0, 0, 0, 0, 0]],
+        y_dimensions=[1, 0, 0, 0, 0, 0, 0],
+    )
+    valid_tree = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    invalid_tree = parse_expression(
+        "x1 * x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    training_sequences = [Int[2] for _ in 1:8]
+    training_costs = ones(Float64, 8)
+    invalid_tokens = MySRCore.SymbolicRegression.PopulationSeedingModule._expression_tokens(
+        invalid_tree, options, 1
+    )
+    observed_formula_type = Ref{Any}(nothing)
+    generator(training_sequences, costs, token_arities, count, max_length, seed, formula_type) = begin
+        observed_formula_type[] = formula_type
+        [invalid_tokens]
+    end
+    trees = MySRCore.SymbolicRegression.PopulationSeedingModule._generate_proposal_trees(
+        generator,
+        training_sequences,
+        training_costs,
+        dataset,
+        Float64,
+        options,
+        1,
+        5,
+        1,
+        2026,
+        MersenneTwister(9),
+    )
+    @test observed_formula_type[] == :theoretical
+    @test length(trees) == 1
+    @test MySRCore.SymbolicRegression.infer_dimension_static(trees[1], dataset, options).valid
 end
 
 @testset "Formula type dimensional contract" begin

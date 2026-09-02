@@ -235,6 +235,7 @@ struct Options{
     rnn_gpsr_proposal_count::Int
     rnn_gpsr_cycles::Int
     rnn_gpsr_rounds::Int
+    rnn_gpsr_feedback_fraction::Float64
     rnn_gpsr_quality_gate::Bool
     rnn_gpsr_maxsize::Int
     topn::Int
@@ -372,6 +373,7 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :rnn_gpsr_proposal_count,
         :rnn_gpsr_cycles,
         :rnn_gpsr_rounds,
+        :rnn_gpsr_feedback_fraction,
         :rnn_gpsr_quality_gate,
         :rnn_gpsr_maxsize,
         :node_type,
