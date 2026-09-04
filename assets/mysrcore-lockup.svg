@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 240" role="img" aria-labelledby="title desc">
+  <title id="title">MySRCore.jl symbolic regression search core</title>
+  <desc id="desc">MySRCore.jl wordmark with an open search orbit and symbolic relation curve.</desc>
+  <g transform="translate(20 20) scale(.83)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M45 148C35 112 54 75 93 56C133 36 180 44 199 76C217 107 199 149 164 176C130 202 78 199 53 172" stroke="#12161C" stroke-width="8"/>
+    <path d="M51 145C75 119 92 111 112 120C130 128 142 143 159 128C174 115 186 97 199 77" stroke="#1947D1" stroke-width="9"/>
+  </g>
+  <circle cx="62" cy="140" r="6.5" fill="#1947D1"/>
+  <circle cx="112.96" cy="119.6" r="5.8" fill="#12161C"/>
+  <circle cx="186.17" cy="83.91" r="6.5" fill="#1947D1"/>
+  <text x="235" y="123" fill="#12161C" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="1">MySRCore.jl</text>
+  <text x="241" y="165" fill="#687384" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="21" font-weight="600" letter-spacing="5">JULIA SEARCH CORE</text>
+</svg>

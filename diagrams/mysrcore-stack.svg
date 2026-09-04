@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 350" role="img" aria-labelledby="title desc">
+  <title id="title">MySRCore architecture</title>
+  <desc id="desc">MySR and Julia callers connect to the MySRCore package, which runs symbolic search and returns a Pareto frontier.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#1947D1"/>
+    </marker>
+  </defs>
+  <rect width="1440" height="350" fill="#FFFFFF"/>
+  <g font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif">
+    <rect x="35" y="78" width="285" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
+    <rect x="385" y="78" width="330" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
+    <rect x="780" y="78" width="285" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
+    <rect x="1130" y="78" width="275" height="150" rx="6" fill="#FFFFFF" stroke="#12161C" stroke-width="3"/>
+    <path d="M320 153H371" fill="none" stroke="#1947D1" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M715 153H766" fill="none" stroke="#1947D1" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M1065 153H1116" fill="none" stroke="#1947D1" stroke-width="4" marker-end="url(#arrow)"/>
+    <text x="62" y="126" fill="#1947D1" font-size="16" font-weight="700" letter-spacing="2">CALLERS</text>
+    <text x="62" y="169" fill="#12161C" font-size="30" font-weight="700">MySR / Julia</text>
+    <text x="62" y="201" fill="#687384" font-size="16">Frontend or direct API</text>
+    <text x="412" y="126" fill="#1947D1" font-size="16" font-weight="700" letter-spacing="2">PACKAGE BOUNDARY</text>
+    <text x="412" y="169" fill="#12161C" font-size="31" font-weight="700">MySRCore.jl</text>
+    <text x="412" y="201" fill="#687384" font-size="16">Stable package identity</text>
+    <text x="807" y="126" fill="#1947D1" font-size="16" font-weight="700" letter-spacing="2">SEARCH ENGINE</text>
+    <text x="807" y="169" fill="#12161C" font-size="29" font-weight="700">Evolution + checks</text>
+    <text x="807" y="201" fill="#687384" font-size="16">Operators, loss, dimensions</text>
+    <text x="1157" y="126" fill="#1947D1" font-size="16" font-weight="700" letter-spacing="2">RESULTS</text>
+    <text x="1157" y="169" fill="#12161C" font-size="29" font-weight="700">HOF / Pareto</text>
+    <text x="1157" y="201" fill="#687384" font-size="16">Trees, equations, metrics</text>
+    <path d="M35 278H1405" fill="none" stroke="#D9DEE7" stroke-width="2" stroke-dasharray="8 10"/>
+    <text x="35" y="313" fill="#687384" font-size="16">Backend-owned extensions: dimensional contracts, constant optimization, user guesses, and optional RNN-GPSR seeding.</text>
+  </g>
+</svg>
