@@ -1,6 +1,6 @@
 module MutationFunctionsModule
 
-using Random: default_rng, AbstractRNG
+using Random: default_rng, AbstractRNG, shuffle!
 using DynamicExpressions:
     AbstractExpressionNode,
     AbstractExpression,
@@ -19,7 +19,16 @@ using DynamicExpressions:
     max_degree
 using Statistics: median
 using ..CoreModule:
-    AbstractOptions, DATA_TYPE, init_value, sample_value, Dataset, ConstantMutation
+    AbstractOptions,
+    DATA_TYPE,
+    init_value,
+    sample_value,
+    Dataset,
+    ConstantMutation,
+    dimension_policy
+using ..DimensionalAnalysisModule: infer_dimension_static
+using ..DimensionalAnalysisModule: is_dimensional_scale_wrapper
+using ..CoreModule.MutationAffinityModule: sample_affinity_target
 using ..EvaluateInverseModule: eval_inverse_tree_array, is_bad_array
 using ..BacksolveModule: fit_sparse_expression, configured_backsolve
 
@@ -102,21 +111,97 @@ end
 
 """Randomly convert an operator into another one (binary->binary; unary->unary)"""
 function mutate_operator(
-    ex::AbstractExpression{T}, options::AbstractOptions, rng::AbstractRNG=default_rng()
+    ex::AbstractExpression{T},
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    scope::Symbol=:full,
 ) where {T<:DATA_TYPE}
     tree, context = get_contents_for_mutation(ex, rng)
-    ex = with_contents_for_mutation(ex, mutate_operator(tree, options, rng), context)
+    ex = with_contents_for_mutation(
+        ex,
+        mutate_operator(tree, options, rng; dataset, scope),
+        context,
+    )
     return ex
 end
 function mutate_operator(
-    tree::AbstractExpressionNode, options::AbstractOptions, rng::AbstractRNG=default_rng()
+    tree::AbstractExpressionNode,
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    scope::Symbol=:full,
 )
-    if !(has_operators(tree))
+    if !has_operators(tree)
         return tree
     end
-    node = rand(rng, NodeSampler(; tree, filter=t -> t.degree != 0))
-    node.op = rand(rng, 1:(options.nops[node.degree]))
+    nodes = [node for node in tree if node.degree != 0]
+    shuffle!(rng, nodes)
+    for node in nodes
+        scope === :full &&
+            dimension_policy(options) === :compatible &&
+            is_dimensional_scale_wrapper(tree, options) &&
+            node === tree && continue
+        targets = _mutation_operator_targets(tree, node, options; dataset, scope)
+        isempty(targets) && continue
+        node.op = _sample_operator_target(rng, node.op, node.degree, targets, options)
+        return tree
+    end
     return tree
+end
+
+function _dimensionally_valid_mutation(
+    tree::AbstractExpressionNode,
+    node,
+    target_op::Int,
+    options::AbstractOptions,
+    dataset,
+    scope::Symbol,
+)
+    dataset === nothing && return true
+    policy = dimension_policy(options)
+    policy === :ignore && return true
+    old_op = node.op
+    try
+        node.op = target_op
+        return infer_dimension_static(tree, dataset, options; scope=scope).valid
+    finally
+        node.op = old_op
+    end
+end
+
+function _mutation_operator_targets(
+    tree::AbstractExpressionNode,
+    node,
+    options::AbstractOptions;
+    dataset=nothing,
+    scope::Symbol=:full,
+)
+    old_op = node.op
+    targets = Int[]
+    for target_op in 1:options.nops[node.degree]
+        target_op == old_op && continue
+        _dimensionally_valid_mutation(tree, node, target_op, options, dataset, scope) &&
+            push!(targets, target_op)
+    end
+    node.op = old_op
+    return targets
+end
+
+function _sample_operator_target(
+    rng::AbstractRNG,
+    old_op::Integer,
+    degree::Integer,
+    targets::Vector{Int},
+    options::AbstractOptions,
+)
+    isempty(targets) && return old_op
+    weights = options.mutation_affinity === :none ?
+        ones(Float64, length(targets)) :
+        Float64[options.operator_affinity[Int(degree)][Int(old_op), target] for target in targets]
+    return sample_affinity_target(
+        rng, targets, weights, options.mutation_affinity_exploration
+    )
 end
 
 """Randomly perturb a constant."""
@@ -186,22 +271,75 @@ end
 
 """Randomly change which feature a variable node points to"""
 function mutate_feature(
-    ex::AbstractExpression{T}, nfeatures::Int, rng::AbstractRNG=default_rng()
+    ex::AbstractExpression{T},
+    nfeatures::Int,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    options=nothing,
+    scope::Symbol=:full,
 ) where {T<:DATA_TYPE}
     tree, context = get_contents_for_mutation(ex, rng)
     local_nfeatures = get_nfeatures_for_mutation(ex, context, nfeatures)
-    ex = with_contents_for_mutation(ex, mutate_feature(tree, local_nfeatures, rng), context)
+    ex = with_contents_for_mutation(
+        ex,
+        mutate_feature(tree, local_nfeatures, rng; dataset, options, scope),
+        context,
+    )
     return ex
 end
 function mutate_feature(
-    tree::AbstractExpressionNode{T}, nfeatures::Int, rng::AbstractRNG=default_rng()
+    tree::AbstractExpressionNode{T},
+    nfeatures::Int,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    options=nothing,
+    scope::Symbol=:full,
 ) where {T<:DATA_TYPE}
     # Quick checks for if there is nothing to do
     nfeatures <= 1 && return tree
     !any(node -> node.degree == 0 && !node.constant, tree) && return tree
 
-    node = rand(rng, NodeSampler(; tree, filter=t -> (t.degree == 0 && !t.constant)))
-    node.feature = rand(rng, filter(!=(node.feature), 1:nfeatures))
+    nodes = [node for node in tree if node.degree == 0 && !node.constant]
+    shuffle!(rng, nodes)
+    for node in nodes
+        old_feature = node.feature
+        targets = Int[]
+        for feature in 1:nfeatures
+            feature == old_feature && continue
+            node.feature = feature
+            valid = try
+                policy = options === nothing ? :ignore : dimension_policy(options)
+                if dataset === nothing || policy === :ignore
+                    true
+                else
+                    infer_dimension_static(tree, dataset, options; scope=scope).valid
+                end
+            finally
+                node.feature = old_feature
+            end
+            valid && push!(targets, feature)
+        end
+        isempty(targets) && continue
+        weights = if options === nothing ||
+            options.mutation_affinity === :none ||
+            options.feature_affinity === nothing
+            ones(Float64, length(targets))
+        else
+            matrix = options.feature_affinity
+            nfeatures == size(matrix, 1) ||
+                throw(ArgumentError(
+                    "`feature_affinity` must match the number of features used by mutation."
+                ))
+            Float64[matrix[old_feature, target] for target in targets]
+        end
+        node.feature = sample_affinity_target(
+            rng,
+            targets,
+            weights,
+            options === nothing ? 1.0 : options.mutation_affinity_exploration,
+        )
+        return tree
+    end
     return tree
 end
 

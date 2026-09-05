@@ -41,6 +41,7 @@ using ..MutationsModule: MutationsModule
 using ..CrossoversModule: CrossoversModule
 import ..OptionsStructModule: Options
 using ..OptionsStructModule: ComplexityMapping, operator_specialization
+using ..MutationAffinityModule: build_operator_affinity, build_feature_affinity
 using ..PluginModule:
     default_adaptive_parsimony_plugin,
     default_simulated_annealing_plugin,
@@ -408,6 +409,14 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
   dimensional rejection, `:semi_theoretical` to enforce dimensional validity
   inside `f(X; θ)` with an external fitted scale, or `:theoretical` to enforce
   dimensional validity and target-dimension equality for the complete tree.
+- `mutation_affinity`: Static destination prior for point mutation. `:family`
+  uses built-in operator families, while `:none` uses uniform destination weights.
+- `mutation_affinity_strength`: Relative weight of a recognized same-family
+  destination. Must be positive.
+- `mutation_affinity_exploration`: Uniform exploration mixture in `[0, 1]`.
+- `operator_affinity`: Optional arity-to-matrix overrides for operator destination
+  weights. Matrix rows are source operators and columns are destinations.
+- `feature_affinity`: Optional square matrix for feature replacement weights.
 - `use_frequency`: Whether to use a parsimony that adapts to the
     relative proportion of equations at each complexity; this will
     ensure that there are a balanced number of equations considered
@@ -590,6 +599,11 @@ $(OPTION_DESCRIPTIONS)
     @nospecialize(loss_function_expression::Union{Function,Nothing} = nothing),
     ###           [model_selection - only used in MLJ interface]
     @nospecialize(formula_type::Union{Symbol,AbstractString}=:empirical),
+    @nospecialize(mutation_affinity::Symbol=:family),
+    @nospecialize(mutation_affinity_strength::Real=4.0),
+    @nospecialize(mutation_affinity_exploration::Real=0.2),
+    @nospecialize(operator_affinity=nothing),
+    @nospecialize(feature_affinity=nothing),
     ## 4. Working with Complexities:
     @nospecialize(parsimony::Union{Nothing,Real} = nothing),
     @nospecialize(constraints = nothing),
@@ -1080,6 +1094,13 @@ $(OPTION_DESCRIPTIONS)
         end
     end
 
+    _operator_affinity = build_operator_affinity(
+        operators,
+        Float64(mutation_affinity_strength),
+        operator_affinity,
+    )
+    _feature_affinity = build_feature_affinity(feature_affinity)
+
     early_stop_condition = if typeof(early_stop_condition) <: Real
         # Need to make explicit copy here for this to work:
         stopping_point = Float64(early_stop_condition)
@@ -1238,6 +1259,13 @@ $(OPTION_DESCRIPTIONS)
             ),
         )
 
+    mutation_affinity in (:none, :family) ||
+        throw(ArgumentError("`mutation_affinity` must be `:none` or `:family`."))
+    isfinite(mutation_affinity_strength) && mutation_affinity_strength > 0 ||
+        throw(ArgumentError("`mutation_affinity_strength` must be finite and positive."))
+    0 <= mutation_affinity_exploration <= 1 ||
+        throw(ArgumentError("`mutation_affinity_exploration` must be in [0, 1]."))
+
     nops = map(length, operators.ops)
 
     options = Options{
@@ -1267,6 +1295,11 @@ $(OPTION_DESCRIPTIONS)
         tournament_selection_p,
         parsimony,
         formula_type,
+        mutation_affinity,
+        Float64(mutation_affinity_strength),
+        Float64(mutation_affinity_exploration),
+        _operator_affinity,
+        _feature_affinity,
         maxsize,
         maxdepth,
         Val(turbo),
