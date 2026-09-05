@@ -5,9 +5,19 @@ using ..OperatorsModule: plus, sub, mult
 
 # Match actual functions, not names: a custom function named `sin` is not Base.sin.
 function same_operator_family(a, b, degree::Integer)
-    families = degree == 2 ? (((+), plus, (-), sub), ((*), mult, (/))) :
-        degree == 1 ? ((sin, cos), (sinh, cosh)) : ()
-    return any(family -> any(op -> op === a, family) && any(op -> op === b, family), families)
+    if degree == 2
+        additive = (a === (+) || a === plus || a === (-) || a === sub) &&
+            (b === (+) || b === plus || b === (-) || b === sub)
+        multiplicative = (a === (*) || a === mult || a === (/)) &&
+            (b === (*) || b === mult || b === (/))
+        return additive || multiplicative
+    elseif degree == 1
+        return (a === sin && (b === sin || b === cos)) ||
+            (a === cos && (b === sin || b === cos)) ||
+            (a === sinh && (b === sinh || b === cosh)) ||
+            (a === cosh && (b === sinh || b === cosh))
+    end
+    return false
 end
 
 function affinity_matrix(value, name::AbstractString)
@@ -46,18 +56,25 @@ function build_feature_affinity(value)
     return matrix
 end
 
-"""Mix a normalized static prior with uniform exploration over legal targets only."""
+"""Mix a static prior with uniform exploration over legal targets only."""
 function sample_affinity_target(rng::AbstractRNG, targets, weights, exploration::Float64)
     length(targets) == 1 && return only(targets)
     maxweight = maximum(weights)
-    # Scaling before summing also handles very large finite user weights.
-    scaled = maxweight > 0 ? weights ./ maxweight : ones(length(weights))
-    probabilities = (1 - exploration) .* scaled ./ sum(scaled) .+
-        exploration / length(targets)
-    threshold = rand(rng)
-    for (target, probability) in zip(targets, probabilities)
-        threshold -= probability
-        threshold < 0 && return target
+    maxweight <= 0 && return targets[rand(rng, eachindex(targets))]
+
+    # Keep the original max-scaling for overflow safety, but accumulate in place
+    # to avoid allocating scaled/probability vectors on every mutation.
+    scaled_total = zero(Float64)
+    @inbounds for weight in weights
+        scaled_total += weight / maxweight
+    end
+    if rand(rng) < exploration
+        return targets[rand(rng, eachindex(targets))]
+    end
+    threshold = rand(rng) * scaled_total
+    @inbounds for i in eachindex(targets, weights)
+        threshold -= weights[i] / maxweight
+        threshold < 0 && return targets[i]
     end
     return last(targets)
 end
