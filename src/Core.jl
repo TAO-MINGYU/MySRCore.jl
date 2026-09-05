@@ -10,6 +10,7 @@ include("Crossovers.jl")
 include("MutationWeights.jl")
 include("OptionsStruct.jl")
 include("Operators.jl")
+include("MutationAffinity.jl")
 include("ExpressionSpec.jl")
 include("Plugin.jl")
 include("Options.jl")
@@ -93,6 +94,10 @@ using .OperatorsModule:
     erf,
     erfc,
     atanh_clip
+using .MutationAffinityModule:
+    build_operator_affinity,
+    build_feature_affinity,
+    sample_affinity_target
 using .ExpressionSpecModule:
     AbstractExpressionSpec,
     ExpressionSpec,

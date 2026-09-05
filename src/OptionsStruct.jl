@@ -204,6 +204,12 @@ struct Options{
     parsimony::Float64
     # MySR formula type controls the dimensional contract.
     formula_type::Symbol
+    # Static destination affinity for point mutation.
+    mutation_affinity::Symbol
+    mutation_affinity_strength::Float64
+    mutation_affinity_exploration::Float64
+    operator_affinity::Vector{Matrix{Float64}}
+    feature_affinity::Union{Nothing,Matrix{Float64}}
     maxsize::Int
     maxdepth::Int
     turbo::Val{_turbo}
@@ -363,6 +369,11 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :nested_constraints,
         :complexity_mapping,
         :formula_type,
+        :mutation_affinity,
+        :mutation_affinity_strength,
+        :mutation_affinity_exploration,
+        :operator_affinity,
+        :feature_affinity,
         :maxsize,
         :maxdepth,
         :populations,

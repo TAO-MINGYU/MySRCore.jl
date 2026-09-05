@@ -10,6 +10,92 @@ using Random: MersenneTwister
     @test isdefined(MySRCore, :equation_search)
 end
 
+@testset "Dimension-aware mutation affinity" begin
+    MutationFunctions = MySRCore.SymbolicRegression.MutationFunctionsModule
+    X = Float64[1 2 3; 1 2 3]
+    y = Float64[2, 4, 6]
+    dimensions = [[1, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0]]
+    dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1", "x2"],
+        X_dimensions=dimensions,
+        y_dimensions=[1, 0, 0, 0, 0, 0, 0],
+    )
+    options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        formula_type=:theoretical,
+        default_plugins=(),
+    )
+    expr = parse_expression(
+        "x1 + x2";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=Node{Float64,2},
+    )
+    tree = get_tree(expr)
+    # Strict mode allows subtraction (same dimensions), but rejects product and quotient.
+    @test MutationFunctions._mutation_operator_targets(
+        tree, tree, options; dataset, scope=:full
+    ) == [2]
+    @test options.operator_affinity[2][1, 2] == 4.0
+    @test options.operator_affinity[2][1, 3] == 1.0
+
+    semi = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        formula_type=:semi_theoretical,
+        default_plugins=(),
+    )
+    semi_expr = parse_expression(
+        "x1 + x2";
+        operators=semi.operators,
+        variable_names=["x1", "x2"],
+        node_type=Node{Float64,2},
+    )
+    # Semi-theoretical mutation checks the internal f(X), not the fitted outer scale.
+    @test MutationFunctions._mutation_operator_targets(
+        get_tree(semi_expr), get_tree(semi_expr), semi; dataset, scope=:internal
+    ) == [2, 3, 4]
+
+    @test_throws ArgumentError Options(mutation_affinity=:unknown)
+    @test_throws ArgumentError Options(mutation_affinity_strength=0.0)
+    @test_throws ArgumentError Options(mutation_affinity_exploration=1.1)
+    @test_throws ArgumentError Options(
+        binary_operators=(+, -),
+        unary_operators=(),
+        operator_affinity=Dict(2 => ones(1, 1)),
+    )
+
+    # A feature with an incompatible dimension is not a legal strict mutation.
+    incompatible = Dataset(
+        X,
+        y;
+        variable_names=["x1", "x2"],
+        X_dimensions=[[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0]],
+        y_dimensions=[1, 0, 0, 0, 0, 0, 0],
+    )
+    feature_options = Options(
+        binary_operators=(+, -),
+        unary_operators=(),
+        formula_type=:theoretical,
+        default_plugins=(),
+    )
+    feature_expr = parse_expression(
+        "x1 + x1";
+        operators=feature_options.operators,
+        variable_names=["x1", "x2"],
+        node_type=Node{Float64,2},
+    )
+    before = [node.feature for node in get_tree(feature_expr) if node.degree == 0]
+    mutated = MutationFunctions.mutate_feature(
+        feature_expr, 2, MersenneTwister(7); dataset=incompatible, options=feature_options
+    )
+    after = [node.feature for node in get_tree(mutated) if node.degree == 0]
+    @test after == before
+end
+
 @testset "RNN-GPSR population seeding" begin
     @test !Options().rnn_gpsr_seeding
     @test_throws ArgumentError Options(rnn_gpsr_seed_fraction=1.1)

@@ -651,9 +651,11 @@ function mutate!(
     ::OperatorMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    dataset=nothing,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = mutate_operator(new_tree, options)
+    scope = dimension_policy(options) === :compatible ? :internal : :full
+    new_tree = mutate_operator(new_tree, options; dataset, scope)
     trace_mutation_type!(trace, "mutate_operator")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -665,9 +667,11 @@ function mutate!(
     options::AbstractOptions;
     trace::MaybeTrace,
     nfeatures,
+    dataset=nothing,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = mutate_feature(new_tree, nfeatures)
+    scope = dimension_policy(options) === :compatible ? :internal : :full
+    new_tree = mutate_feature(new_tree, nfeatures; dataset, options, scope)
     trace_mutation_type!(trace, "mutate_feature")
     return MutationResult{N,P}(; tree=new_tree)
 end
