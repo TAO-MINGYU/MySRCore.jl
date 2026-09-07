@@ -78,3 +78,10 @@
 - **Verification**：MySRCore `Pkg.test()` 通过；RNN-GPSR 反馈轮次回归断言确认实际配置下 27→33 条语料，完整
   RNN-GPSR Python 测试 44 passed。
 - **Unknown**：修复后的远程 benchmark 恢复率与最终 HOF 收益尚未测量。
+
+## 2026-09-07 - 1.1.1 synchronized backend release
+
+- **Confirmed**：Project version and MySRCore source snapshot are released as `v1.1.1`.
+- **Verification**：commit `c31efde77250f8acafc2d331a91cfdb0b9e969e4` and tag `v1.1.1`
+  were pushed; the remote benchmark run root uses this snapshot.
+- **Unknown**：paired recovery and HOF metrics remain pending Slurm array `30489`.
