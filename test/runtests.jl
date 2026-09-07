@@ -222,14 +222,14 @@ end
     options = Options(
         default_plugins=(),
         populations=1,
-        population_size=4,
+        population_size=27,
         tournament_selection_n=2,
         rnn_gpsr_seeding=true,
-        rnn_gpsr_candidate_count=8,
-        rnn_gpsr_proposal_count=4,
+        rnn_gpsr_candidate_count=27,
+        rnn_gpsr_proposal_count=27,
         rnn_gpsr_cycles=0,
         rnn_gpsr_rounds=2,
-        rnn_gpsr_feedback_fraction=0.5,
+        rnn_gpsr_feedback_fraction=0.2,
         rnn_gpsr_quality_gate=false,
         rnn_gpsr_maxsize=5,
         maxsize=7,
@@ -248,8 +248,9 @@ end
         verbosity=0,
     )
     # A small first feedback fraction is appended to (rather than replacing)
-    # the eight-example bootstrap corpus.  This preserves the RNN minimum.
-    @test observed_training_counts == [8, 10]
+    # the bootstrap corpus.  With candidate_count=27, six feedback examples
+    # extend the initial 27-example corpus to 33 and preserve the minimum.
+    @test observed_training_counts == [27, 33]
     @test observed_feedback_rounds == [1, 2]
     @test observed_backend_cost_flags == [false, true]
 end
