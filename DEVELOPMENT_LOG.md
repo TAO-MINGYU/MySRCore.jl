@@ -75,6 +75,6 @@
 - **Decision**：新增最小训练语料常量 8；首次反馈少于 8 条时保留 bootstrap 并追加反馈，只有有效反馈
   至少 8 条时才允许替换 bootstrap。
 - **影响路径**：`src/PopulationSeeding.jl`、`test/runtests.jl`。
-- **Verification**：MySRCore `Pkg.test()` 通过；RNN-GPSR 反馈轮次回归断言确认 8→10 条语料，完整
+- **Verification**：MySRCore `Pkg.test()` 通过；RNN-GPSR 反馈轮次回归断言确认实际配置下 27→33 条语料，完整
   RNN-GPSR Python 测试 44 passed。
 - **Unknown**：修复后的远程 benchmark 恢复率与最终 HOF 收益尚未测量。
