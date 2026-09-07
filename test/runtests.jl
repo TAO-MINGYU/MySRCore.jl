@@ -144,6 +144,25 @@ end
     @test seeded_frontier(2026) == seeded_frontier(2026)
 end
 
+@testset "RNN-GPSR tokenization handles unary roots" begin
+    PopulationSeeding = MySRCore.SymbolicRegression.PopulationSeedingModule
+    options = Options(
+        binary_operators=(+,),
+        unary_operators=(sin,),
+        default_plugins=(),
+        maxsize=7,
+    )
+    expression = parse_expression(
+        "sin(x1)";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    tokens = PopulationSeeding._expression_tokens(get_tree(expression), options, 1)
+    @test length(tokens) == 2
+    @test tokens[1] > 1 + 1
+end
+
 @testset "RNN-GPSR training corpus is independent of backend member results" begin
     X = reshape(Float64[1, 2, 3, 4], 1, :)
     y = copy(vec(X))
@@ -228,6 +247,8 @@ end
         progress=false,
         verbosity=0,
     )
+    # A small first feedback fraction is appended to (rather than replacing)
+    # the eight-example bootstrap corpus.  This preserves the RNN minimum.
     @test observed_training_counts == [8, 10]
     @test observed_feedback_rounds == [1, 2]
     @test observed_backend_cost_flags == [false, true]
@@ -333,7 +354,7 @@ end
             rnn_generator=generator,
         )
     @test observed_counts == [4]
-    @test evaluations == options.population_size
+    @test evaluations == options.population_size + options.rnn_gpsr_candidate_count
 end
 
 @testset "RNN-GPSR feedback count excludes nonfinite members" begin
@@ -361,6 +382,40 @@ end
     @test used == 0
     @test training_sequences == [Int[2]]
     @test training_costs == [1.0]
+end
+
+@testset "RNN-GPSR real feedback can replace structural bootstrap" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        maxsize=7,
+        save_to_file=false,
+        rnn_gpsr_feedback_fraction=1.0,
+    )
+    dataset = Dataset(X, y; variable_names=["x1"])
+    tree = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    member = PopMember(dataset, tree, options; deterministic=true)
+    member.cost = 0.25
+    feedback_members = [copy(member) for _ in 1:8]
+    training_sequences = [Int[2], Int[2, 2]]
+    training_costs = [9.0, 8.0]
+    used = MySRCore.SymbolicRegression.PopulationSeedingModule._append_feedback_examples!(
+        training_sequences,
+        training_costs,
+        feedback_members,
+        options,
+        1;
+        replace_bootstrap=true,
+    )
+    @test used == 8
+    @test training_sequences == [Int[2] for _ in 1:8]
+    @test training_costs == [0.25 for _ in 1:8]
 end
 
 @testset "User guesses have priority over RNN-GPSR seeds" begin

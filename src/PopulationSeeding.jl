@@ -13,6 +13,7 @@ using ..CoreModule:
     dimension_policy
 using ..CheckConstraintsModule: check_constraints
 using ..ComplexityModule: compute_complexity
+using ..LossFunctionsModule: eval_loss
 using ..MutationFunctionsModule: gen_random_tree_fixed_size
 using ..DimensionGenerationModule: gen_random_tree_dimensional
 using ..DimensionalAnalysisModule: unwrap_dimensional_scale
@@ -28,7 +29,11 @@ function _expression_tokens(expression, options::AbstractOptions, nfeatures::Int
         token = if node.degree == 0
             node.constant ? 1 : 1 + node.feature
         else
-            1 + nfeatures + sum(options.nops[1:(node.degree - 1)]) + node.op
+            # A unary node has no lower-arity operator block.  Julia's
+            # `sum(::Tuple{})` throws, so use an explicit zero for degree 1.
+            lower_arity_offset = node.degree == 1 ? 0 :
+                sum(options.nops[1:(node.degree - 1)])
+            1 + nfeatures + lower_arity_offset + node.op
         end
         push!(tokens, token)
     end
@@ -219,17 +224,20 @@ function _generate_proposal_trees(
     return trees
 end
 
-"""Generate the independent grammar/dimension-aware bootstrap corpus for RNN training.
+"""Generate a grammar/dimension-aware data-scored bootstrap corpus for RNN training.
 
-The bootstrap corpus never reads target values, evaluated PopMember costs, HOF
-entries, or formal GPSR results. Its scores are structural priors only; later
-feedback rounds append real costs from lightweight GPSR elites."""
+Each candidate is evaluated against the current dataset before the first RNN
+round.  This supplies a weak but target-aware signal instead of teaching the
+policy only expression complexity.  Formal population-member/HOF results are
+still excluded; later rounds replace this prior with real GPSR feedback."""
 function _independent_training_corpus(
     dataset::Dataset{T},
     options::AbstractOptions,
     nfeatures::Int,
     maxsize::Int,
     rng::AbstractRNG,
+    ;
+    return_evaluations::Bool=false,
 ) where {T}
     requested = max(8, options.rnn_gpsr_candidate_count)
     sequences = Vector{Vector{Int}}()
@@ -240,18 +248,31 @@ function _independent_training_corpus(
         tree = _valid_random_tree(dataset, T, options, nfeatures, maxsize, rng)
         tokens = _tree_tokens(tree, options, nfeatures)
         push!(sequences, tokens)
-        # This is a grammar prior, not a data-fit loss.
+        candidate_loss = try
+            Float64(eval_loss(tree, dataset, options))
+        catch
+            Inf
+        end
+        isfinite(candidate_loss) || (candidate_loss = 1.0e12)
+        # Keep complexity as a tiny tie-breaker while making the bootstrap
+        # primarily target-aware. One tree evaluation is charged to callers.
         push!(
             structural_costs,
-            Float64(compute_complexity(tree, options)) + 1.0e-3 * length(tokens),
+            candidate_loss + 1.0e-6 * compute_complexity(tree, options),
         )
     end
     length(sequences) >= 8 ||
         throw(ArgumentError("Unable to construct the RNN-GPSR bootstrap training corpus."))
-    return sequences, structural_costs
+    return return_evaluations ? (sequences, structural_costs, length(sequences)) :
+        (sequences, structural_costs)
 end
 
 _member_cost(member) = isfinite(member.cost) ? Float64(member.cost) : Inf
+
+# The Python RNN-GPSR policy needs at least eight examples to form a stable
+# training batch.  Keep this invariant at the Julia/Python boundary so a small
+# feedback fraction cannot erase the structural bootstrap corpus.
+const MIN_RNN_GPSR_TRAINING_EXAMPLES = 8
 
 function _population_quality(members::AbstractVector{<:AbstractPopMember})
     costs = _member_cost.(members)
@@ -264,18 +285,29 @@ function _append_feedback_examples!(
     members::AbstractVector{<:AbstractPopMember},
     options::AbstractOptions,
     nfeatures::Int,
+    ;
+    replace_bootstrap::Bool=false,
 )
-    isempty(members) && return 0
     ordered = sort(collect(members); by=_member_cost)
     keep = clamp(
         ceil(Int, length(ordered) * options.rnn_gpsr_feedback_fraction),
         0,
         length(ordered),
     )
+    finite_members = [member for member in Iterators.take(ordered, keep) if isfinite(_member_cost(member))]
+    isempty(finite_members) && return 0
+    # A first feedback round may contain fewer elites than the policy's minimum
+    # (for example ceil(27 * 0.2) == 6).  In that case retain the bootstrap
+    # corpus and append the scored feedback instead of handing an undersized
+    # corpus to Python.  Replacement is only safe once enough finite examples
+    # are available on its own.
+    if replace_bootstrap && length(finite_members) >= MIN_RNN_GPSR_TRAINING_EXAMPLES
+        empty!(training_sequences)
+        empty!(training_costs)
+    end
     used = 0
-    for member in Iterators.take(ordered, keep)
+    for member in finite_members
         cost = _member_cost(member)
-        isfinite(cost) || continue
         push!(training_sequences, _tree_tokens(member.tree, options, nfeatures))
         push!(training_costs, cost)
         used += 1
@@ -366,10 +398,10 @@ function build_rnn_gpsr_seed_pool(
     base_seed = isnothing(options.seed) ? rand(default_rng(), 0:(typemax(Int32))) : options.seed
     rng = MersenneTwister(base_seed + seed_offset)
 
-    training_sequences, training_costs = _independent_training_corpus(
-        dataset, options, nfeatures, maxsize, rng
+    training_sequences, training_costs, bootstrap_evaluations = _independent_training_corpus(
+        dataset, options, nfeatures, maxsize, rng; return_evaluations=true
     )
-    evaluations = 0.0
+    evaluations = Float64(bootstrap_evaluations)
     seed_pool = AbstractPopMember[]
     backend_feedback_count = 0
 
@@ -460,6 +492,7 @@ function build_rnn_gpsr_seed_pool(
                 feedback_members,
                 options,
                 nfeatures,
+                replace_bootstrap=backend_feedback_count == 0,
             )
         else
             # Explicitly disabling lightweight GPSR is retained as a smoke/testing
@@ -471,6 +504,7 @@ function build_rnn_gpsr_seed_pool(
                 accepted_members,
                 options,
                 nfeatures,
+                replace_bootstrap=backend_feedback_count == 0,
             )
         end
     end
