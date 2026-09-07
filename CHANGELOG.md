@@ -1086,3 +1086,8 @@ traceability. They describe SymbolicRegression.jl releases, not MySRCore release
 ### Bug Fixes
 
 - 10 issue with hall of fame not saving ([c9adc43](https://github.com/astroautomata/SymbolicRegression.jl/commit/c9adc43d8dd7ac54579b9d1249fe3f71a385c161))
+## MySRCore 1.1.1 (2026-09-07)
+
+- Compatibility release paired with MySR 1.1.1. The backend package version is
+  advanced so the frontend can pin the corrected release while preserving the
+  existing RNN-GPSR feedback behavior.

@@ -42,3 +42,6 @@ The following files differ from the retained SymbolicRegression.jl baseline:
 The algorithm implementation under `src/SymbolicRegression.jl` and its included
 source files remains the attributed upstream baseline unless a later entry names a
 specific modification.
+## 2026-09-07 - MySRCore 1.1.1
+
+- Versioned the backend release paired with the MySR 1.1.1 RNN-GPSR fix.

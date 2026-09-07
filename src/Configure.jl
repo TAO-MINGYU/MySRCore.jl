@@ -291,7 +291,23 @@ function import_module_on_workers(
     loaded_modules_head_worker = [k.name for (k, _) in Base.loaded_modules]
 
     included_as_local = "SymbolicRegression" ∉ loaded_modules_head_worker
-    expr = if included_as_local
+    # The wrapper's retained module is nested under `MySRCore`; relying on
+    # `Base.loaded_modules` is insufficient because Julia may omit the wrapper
+    # PkgId after PythonCall evaluates this code.  The module hierarchy is
+    # stable both before and after worker creation.
+    mysrcore_package_loaded =
+        nameof(@__MODULE__) == :SymbolicRegression &&
+        nameof(parentmodule(@__MODULE__)) == :MySRCore
+    expr = if mysrcore_package_loaded
+        # MySRCore wraps the retained SymbolicRegression module.  Loading the
+        # package on workers preserves its package identity, which is required
+        # by Preferences.jl and other package-scoped metadata.  Including
+        # SymbolicRegression.jl directly in Main would make those macros see
+        # `Main` instead of a package and fail during worker initialization.
+        quote
+            using MySRCore: SymbolicRegression
+        end
+    elseif included_as_local
         quote
             include($filename)
             using .SymbolicRegression
