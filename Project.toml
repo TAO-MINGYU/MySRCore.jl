@@ -2,7 +2,7 @@
 name = "MySRCore"
 uuid = "65629769-74ff-4293-a07c-ae7483a03f6e"
 authors = ["Mingyu Tao", "Miles Cranmer and SymbolicRegression.jl contributors"]
-version = "1.1.1"
+version = "1.1.2"
 
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"

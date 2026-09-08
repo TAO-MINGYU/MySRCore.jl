@@ -1,5 +1,10 @@
 # Fork changes
 
+## 2026-09-08 - MySRCore 1.1.2
+
+- Published the patch release paired with MySR 1.1.2 for the corrected benchmark
+  scoring and four-group capability ablation protocol.
+
 ## 2026-09-02 - MySRCore 1.1.0
 
 - Added the backend half of formula_type-conditioned RNN-GPSR: dimensional-aware

@@ -1,5 +1,10 @@
 # Changelog
 
+## MySRCore 1.1.2 (2026-09-08)
+
+- Published the patch release paired with MySR 1.1.2 for the matched capability
+  ablation benchmark. Search behavior remains the 1.1.1 RNN-GPSR implementation.
+
 ## MySRCore 1.1.0 (2026-09-02)
 
 - Added formula_type-aware RNN-GPSR seeding with a backend-owned dimensional gate,
