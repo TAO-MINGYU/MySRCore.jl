@@ -85,3 +85,25 @@
 - **Verification**：commit `c31efde77250f8acafc2d331a91cfdb0b9e969e4` and tag `v1.1.1`
   were pushed; the remote benchmark run root uses this snapshot.
 - **Unknown**：paired recovery and HOF metrics remain pending Slurm array `30489`.
+
+## 2026-09-08 - 1.1.2 benchmark release record
+
+- **Confirmed**：MySRCore project version, changelog and source snapshot are released as
+  `v1.1.2` (commit `d2f640a`).
+- **Decision**：the four-group ablation reuses this backend identically for AFE, RNN-GPSR and
+  empty MySR; only frontend capability toggles differ, preserving a matched backend/resource
+  comparison.
+- **Verification**：the release regression suite had passed before the benchmark snapshot;
+  remote task outcomes remain Unknown until Slurm completion.
+
+## 2026-09-09 - Harden empty RNN-GPSR proposal callback
+
+- **变更类型**：RNN-GPSR 回调边界修复。
+- **Confirmed**：外部 RNN callback 在某轮没有可用 proposal 时可能返回 `nothing`；原实现会在
+  proposal 遍历阶段抛出错误，使后续合法随机回退无法执行。
+- **Decision**：`_generate_proposal_trees` 将显式 `nothing` 规范化为空 proposal batch，继续使用
+  已有 grammar/dimension-aware random fallback 补齐请求数量；其他非序列返回值仍按契约报错。
+- **修改路径**：`src/PopulationSeeding.jl`、`test/runtests.jl`。
+- **Verification**：`Pkg.test()` 全部通过，新增 empty-callback 回归为 2/2；临时可写 Julia
+  depot 下完整 MySRCore 测试通过。
+- **Residual/Unknown**：未改变 RNN 训练策略或预算；修复后的远程 HOF 影响尚未测量。

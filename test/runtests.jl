@@ -599,6 +599,44 @@ end
     @test MySRCore.SymbolicRegression.infer_dimension_static(trees[1], dataset, options).valid
 end
 
+@testset "RNN-GPSR empty callback falls back to valid random trees" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        maxsize=5,
+        deterministic=true,
+        save_to_file=false,
+    )
+    dataset = Dataset(X, y; variable_names=["x1"])
+    generator(args...) = nothing
+
+    trees = MySRCore.SymbolicRegression.PopulationSeedingModule._generate_proposal_trees(
+        generator,
+        [Int[2] for _ in 1:8],
+        ones(Float64, 8),
+        dataset,
+        Float64,
+        options,
+        1,
+        5,
+        3,
+        2026,
+        MersenneTwister(9),
+    )
+
+    @test length(trees) == 3
+    @test all(
+        tree -> MySRCore.SymbolicRegression.check_constraints(
+            tree,
+            dataset,
+            options,
+            5,
+        ),
+        trees,
+    )
+end
+
 @testset "Formula type dimensional contract" begin
     @test MySRCore.SymbolicRegression.dimension_policy(Options()) == :ignore
     @test MySRCore.SymbolicRegression.dimension_policy(Options(formula_type=:empirical)) == :ignore

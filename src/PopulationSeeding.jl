@@ -193,6 +193,11 @@ function _generate_proposal_trees(
             seed,
         )
     end
+    # A policy callback may have no valid proposal in a round (for example,
+    # after grammar/dimension filtering).  Treat an explicit `nothing` as an
+    # empty proposal batch so the bounded random fallback can complete the
+    # requested seed pool instead of crashing after a successful search setup.
+    raw_sequences = something(raw_sequences, Vector{Vector{Int}}())
     trees = Any[]
     seen = Set{Any}()
     for raw_sequence in raw_sequences
