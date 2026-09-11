@@ -972,3 +972,42 @@ end
         dataset_length, empirical, 3, 1, Float64, MersenneTwister(1)
     ) === nothing
 end
+
+@testset "Dimensional randomize mutation preserves expression type" begin
+    X = Float64[1 2 3; 1 2 3]
+    y = Float64[2, 4, 6]
+    length_dim = [1, 0, 0, 0, 0, 0, 0]
+    dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1", "x2"],
+        X_dimensions=[length_dim, length_dim],
+        y_dimensions=length_dim,
+    )
+    options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        formula_type=:theoretical,
+        default_plugins=(),
+        maxsize=7,
+    )
+    expr = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=Node{Float64,2},
+    )
+    member = PopMember(dataset, expr, options; deterministic=true)
+    result = MySRCore.SymbolicRegression.MutateModule.mutate!(
+        copy(member.tree),
+        member,
+        RandomizeMutation(),
+        options;
+        trace=nothing,
+        dataset=dataset,
+        curmaxsize=options.maxsize,
+        nfeatures=2,
+    )
+    @test result.tree isa typeof(member.tree)
+    @test infer_dimension_static(result.tree, dataset, options).valid
+end
