@@ -137,3 +137,30 @@
   checkout 未修改。
 - **Unknown**：未执行大规模 benchmark；affinity 默认强度/探索比例的效果仍不作
   性能声明。
+
+## 2026-09-12 - Fix strict-dimensional RandomizeMutation expression wrapping
+
+- **Confirmed**：在 1.1.3 与 mutation-affinity worktree 合并后的前端回归中，
+  `formula_type=:theoretical` 的 `RandomizeMutation` 会从量纲生成器得到裸
+  `Node`，但 `MutationResult{N,P}` 要求返回原始 `AbstractExpression` 类型，
+  因此曾触发类型错误。
+- **Decision**：变异入口现在先取得表达式的 mutation contents/context，并在量纲
+  生成成功后按同一 context 重新包装；`TemplateExpression` 等嵌套表达式沿内容
+  上下文递归包装，量纲生成失败时仍使用原有随机回退路径。量纲合法性仍由
+  `formula_type` 的候选生成/检查负责，未把量纲混入 affinity 分数。
+- **影响路径**：`src/Mutate.jl`、`test/runtests.jl`。
+- **Verification**：直接 `test/runtests.jl` 全部通过；`Pkg.test()` 全部通过；
+  MySR 前端 `test_dimensional_formula_type.py` 与 `test_rnn_gpsr_seeding.py`
+  共 `62 passed`（1 个 sklearn 收敛警告）；强制 randomize 的理论量纲小型
+  bridge smoke 通过且确认运行时源码来自本 worktree；配置/量纲轻量前端集成
+  另有 `6 passed`。
+- **Residual/Unknown**：完整的高预算 `test_dimensional_constraints` 在本次
+  bridge 启动的 300 秒上限内未完成；小型同路径 smoke 已通过。前端旧测试
+  `test_mutation_and_plugin_configuration` 仍假设顶层 `SymbolicRegression`
+  包名，而当前 MySRCore 公开边界是 `MySRCore.SymbolicRegression`，未在本
+  后端修复中改变该测试/兼容层；`test_dimension_propagation` 仍使用默认
+  `formula_type="empirical"`，与当前“formula_type 是量纲模式唯一来源”的
+  决策不一致，未将其失败解释为本次后端回归。
+- **Backup**：本修复前的 worktree HEAD 保存在
+  `backup/reconcile-before-randomize-fix-20260911`；工作分支为
+  `feature/mutation-affinity-reconcile-v1.1.3-fix`，修复提交为 `6c2049c`。
