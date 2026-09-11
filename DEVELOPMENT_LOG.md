@@ -107,3 +107,11 @@
 - **Verification**：`Pkg.test()` 全部通过，新增 empty-callback 回归为 2/2；临时可写 Julia
   depot 下完整 MySRCore 测试通过。
 - **Residual/Unknown**：未改变 RNN 训练策略或预算；修复后的远程 HOF 影响尚未测量。
+
+## 2026-09-11 - 1.1.3 synchronized backend release preparation
+
+- **变更类型**：发布同步与版本对齐。
+- **Confirmed**：`Project.toml` 版本号更新为 `1.1.3`，`CHANGELOG.md` 与 `FORK_CHANGES.md`
+  记录该版本元数据同步点；等待与前端 MySR 1.1.3 配套发布。
+- **Decision**：后端不再引入本次提交外的功能变更，默认行为沿用 `1.1.2` 已验证路径；
+  后续能力差异主要通过前端参数预算与功能门控实验再度验证。

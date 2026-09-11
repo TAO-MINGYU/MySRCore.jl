@@ -1,5 +1,10 @@
 # Fork changes
 
+## 2026-09-11 - MySRCore 1.1.3
+
+- Synced backend pin for MySR frontend 1.1.3 and released this Julia tag to
+  match the corresponding Python release metadata.
+
 ## 2026-09-08 - MySRCore 1.1.2
 
 - Published the patch release paired with MySR 1.1.2 for the corrected benchmark

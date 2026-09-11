@@ -1,5 +1,10 @@
 # Changelog
 
+## MySRCore 1.1.3 (2026-09-11)
+
+- Published the release paired with MySR 1.1.3 after synchronized AFE and
+  RNN-GPSR capability hardening.
+
 ## MySRCore 1.1.2 (2026-09-08)
 
 - Published the patch release paired with MySR 1.1.2 for the matched capability
