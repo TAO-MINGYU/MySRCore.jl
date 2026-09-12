@@ -770,6 +770,8 @@ function _select_size_matched_index(
 )
     isempty(donor_sizes) && throw(ArgumentError("donor_sizes must not be empty"))
     target_size > 0 || throw(ArgumentError("target_size must be positive"))
+    isfinite(size_tolerance) && size_tolerance >= 0 ||
+        throw(ArgumentError("size_tolerance must be finite and nonnegative"))
     eligible_count = 0
     eligible_index = 0
     nearest_distance = typemax(Int)

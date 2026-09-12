@@ -49,6 +49,12 @@ end
     @test_throws ArgumentError MutationFunctions._select_size_matched_index(
         [1], 0, 0.0, MersenneTwister(1)
     )
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        [1], 1, -0.1, MersenneTwister(1)
+    )
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        [1], 1, NaN, MersenneTwister(1)
+    )
     for seed in 1:12
         @test MutationFunctions._select_size_matched_index(
             [1, 2, 4], 3, 0.0, MersenneTwister(seed)
@@ -64,12 +70,14 @@ end
             parent_node_ids, Set(objectid(node) for node in SR.get_tree(parent2))
         )
         child_node_ids = Set(objectid(node) for node in SR.get_tree(child1))
-        child_node_ids = union(
-            child_node_ids, Set(objectid(node) for node in SR.get_tree(child2))
-        )
+        child2_node_ids = Set(objectid(node) for node in SR.get_tree(child2))
+        child_node_ids = union(child_node_ids, child2_node_ids)
         @test SR.count_nodes(SR.get_tree(child1)) == SR.count_nodes(SR.get_tree(parent1))
         @test SR.count_nodes(SR.get_tree(child2)) == SR.count_nodes(SR.get_tree(parent2))
         @test isempty(intersect(parent_node_ids, child_node_ids))
+        @test isempty(intersect(
+            Set(objectid(node) for node in SR.get_tree(child1)), child2_node_ids
+        ))
         @test SR.string_tree(parent1) == before1
         @test SR.string_tree(parent2) == before2
     end
