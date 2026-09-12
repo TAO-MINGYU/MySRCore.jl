@@ -299,6 +299,12 @@ function mutate_feature(
     # Quick checks for if there is nothing to do
     nfeatures <= 1 && return tree
     !any(node -> node.degree == 0 && !node.constant, tree) && return tree
+    if options !== nothing && options.feature_affinity !== nothing
+        size(options.feature_affinity, 1) == nfeatures ||
+            throw(ArgumentError(
+                "`feature_affinity` must match the number of features used by mutation."
+            ))
+    end
 
     nodes = [node for node in tree if node.degree == 0 && !node.constant]
     shuffle!(rng, nodes)
@@ -327,10 +333,6 @@ function mutate_feature(
             ones(Float64, length(targets))
         else
             matrix = options.feature_affinity
-            nfeatures == size(matrix, 1) ||
-                throw(ArgumentError(
-                    "`feature_affinity` must match the number of features used by mutation."
-                ))
             Float64[matrix[old_feature, target] for target in targets]
         end
         node.feature = sample_affinity_target(

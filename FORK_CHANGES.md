@@ -1,5 +1,15 @@
 # Fork changes
 
+## 2026-09-11 - MySRCore 1.1.3
+
+- Synced backend pin for MySR frontend 1.1.3 and released this Julia tag to
+  match the corresponding Python release metadata.
+
+## 2026-09-08 - MySRCore 1.1.2
+
+- Published the patch release paired with MySR 1.1.2 for the corrected benchmark
+  scoring and four-group capability ablation protocol.
+
 ## 2026-09-02 - MySRCore 1.1.0
 
 - Added the backend half of formula_type-conditioned RNN-GPSR: dimensional-aware
@@ -42,3 +52,6 @@ The following files differ from the retained SymbolicRegression.jl baseline:
 The algorithm implementation under `src/SymbolicRegression.jl` and its included
 source files remains the attributed upstream baseline unless a later entry names a
 specific modification.
+## 2026-09-07 - MySRCore 1.1.1
+
+- Versioned the backend release paired with the MySR 1.1.1 RNN-GPSR fix.

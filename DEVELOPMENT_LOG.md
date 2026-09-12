@@ -22,6 +22,174 @@
 - 验证：待正式 checkout 重新运行直接测试与包测试后补充最终证据。
 - 遗留风险：默认强度 `4.0` 与探索比例 `0.2` 尚未通过匹配预算消融验证，不作性能提升声明。
 
+## 2026-09-05 - 优化 mutation affinity 热路径
+
+- 变更类型：性能与代码质量优化。
+- 影响范围：`src/MutationAffinity.jl`、`src/MutationFunctions.jl`。
+- Decision：保持原有亲和度/探索概率语义，改为无临时向量的在线加权抽样；将 operator family 判断改为直接分支；feature affinity 尺寸在树遍历前校验。
+- Confirmed：热路径 `sample_affinity_target` 稳态分配为 0 bytes；同进程等价旧实现为 192 bytes。优化提交为 `51eed31`。
+- 验证：优化后 MySRCore 完整直接测试全部通过；Python 量纲/接口测试 `16 passed`。
+- 遗留风险：尚未进行大规模搜索性能或最终 HOF 收益 benchmark；当前仅证明局部分配减少与回归行为保持。
+
+## 2026-09-05 - 修复 RNN-GPSR unary token 空集合错误
+
+- Confirmed：`_expression_tokens` 在一元根节点上对空低阶算子元组执行 `sum`，导致 Julia `ArgumentError`；该错误在 RS Job 29580 的 `extrap-sigmoid` 任务中复现。
+- Decision：对 `degree == 1` 显式使用零偏移，保持二元及更高阶 token 编码不变。
+- 修改路径：`src/PopulationSeeding.jl`、`test/runtests.jl`。
+- 验证：新增一元根 token 回归断言；同步后的 RS direct smoke 已无该崩溃，完整 Julia 包测试待后续远程验证。
+
+## 2026-09-05 - Unary token regression verification
+
+- **Confirmed**：`_expression_tokens` 的一元根偏移修复已在正式 checkout 生效，二元及更高阶
+  token 编码保持原逻辑。
+- **Verification**：`JULIA_DEPOT_PATH=/tmp/mysr-julia-test-depot julia --project=. -e
+  'using Pkg; Pkg.test()'` 通过，包含 RNN-GPSR population seeding、unary token、维度门控和
+  mutation affinity 全部测试集；远程 direct smoke4 亦未再现 empty reduction。
+
+## 2026-09-06 - Formal direct-Slurm regression evidence
+
+- **Confirmed**：正式 direct Slurm run 的 220 个 solver task 未再现此前 RNN-GPSR unary-root
+  empty reduction；`extrap-sigmoid` 等含 unary operator 的任务均能完成或按 search timeout
+  正常终止。
+- **Verification**：本地 `Pkg.test()` 仍通过，unary-root regression 断言保留；远程 v3 bundle
+  保存每个 task 的 raw/checkpoint 与 stdout/stderr checksum，未把 candidate-level scoring
+  failures 误记为 MySRCore task crash。
+
+## 2026-09-06 - RNN-GPSR 反馈语料切换
+
+- **Confirmed**：`_append_feedback_examples!` 支持在第一次有效后端反馈时替换 structural bootstrap，后续轮次继续累积真实反馈；非有限成员不会触发清理。
+- **Verification**：新增反馈替换 Julia 测试；`Pkg.test()` 全部通过。
+- **Unknown**：真实 benchmark 中反馈切换对 proposal quality 的提升尚未测量。
+
+## 2026-09-06 - Data-aware structural bootstrap evaluation
+
+- **Confirmed**：`_independent_training_corpus` evaluates each valid bootstrap tree with the active dataset loss and returns the count through `build_rnn_gpsr_seed_pool`; a small complexity term only breaks exact loss ties. The API keeps the old two-value return form unless `return_evaluations=true` is requested.
+- **Verification**：full `Pkg.test()` passed after updating the proposal-budget assertion to include bootstrap evaluations; direct RS run 30052 uses the synchronized source hash.
+- **Unknown**：whether target-aware bootstrap improves final HOF recovery versus PySR is deferred to the paired deep benchmark.
+
+## 2026-09-07 - Preserve RNN bootstrap for undersized feedback
+
+- 变更类型：RNN-GPSR 回归修复。
+- **Confirmed**：RS run 30052 中 `population_size=27` 与 `feedback_fraction=0.2` 产生 6 条首轮反馈，
+  清空 8 条 bootstrap 后触发 Python RNN-GPSR 的最小样本异常。
+- **Decision**：新增最小训练语料常量 8；首次反馈少于 8 条时保留 bootstrap 并追加反馈，只有有效反馈
+  至少 8 条时才允许替换 bootstrap。
+- **影响路径**：`src/PopulationSeeding.jl`、`test/runtests.jl`。
+- **Verification**：MySRCore `Pkg.test()` 通过；RNN-GPSR 反馈轮次回归断言确认实际配置下 27→33 条语料，完整
+  RNN-GPSR Python 测试 44 passed。
+- **Unknown**：修复后的远程 benchmark 恢复率与最终 HOF 收益尚未测量。
+
+## 2026-09-07 - 1.1.1 synchronized backend release
+
+- **Confirmed**：Project version and MySRCore source snapshot are released as `v1.1.1`.
+- **Verification**：commit `c31efde77250f8acafc2d331a91cfdb0b9e969e4` and tag `v1.1.1`
+  were pushed; the remote benchmark run root uses this snapshot.
+- **Unknown**：paired recovery and HOF metrics remain pending Slurm array `30489`.
+
+## 2026-09-08 - 1.1.2 benchmark release record
+
+- **Confirmed**：MySRCore project version, changelog and source snapshot are released as
+  `v1.1.2` (commit `d2f640a`).
+- **Decision**：the four-group ablation reuses this backend identically for AFE, RNN-GPSR and
+  empty MySR; only frontend capability toggles differ, preserving a matched backend/resource
+  comparison.
+- **Verification**：the release regression suite had passed before the benchmark snapshot;
+  remote task outcomes remain Unknown until Slurm completion.
+
+## 2026-09-09 - Harden empty RNN-GPSR proposal callback
+
+- **变更类型**：RNN-GPSR 回调边界修复。
+- **Confirmed**：外部 RNN callback 在某轮没有可用 proposal 时可能返回 `nothing`；原实现会在
+  proposal 遍历阶段抛出错误，使后续合法随机回退无法执行。
+- **Decision**：`_generate_proposal_trees` 将显式 `nothing` 规范化为空 proposal batch，继续使用
+  已有 grammar/dimension-aware random fallback 补齐请求数量；其他非序列返回值仍按契约报错。
+- **修改路径**：`src/PopulationSeeding.jl`、`test/runtests.jl`。
+- **Verification**：`Pkg.test()` 全部通过，新增 empty-callback 回归为 2/2；临时可写 Julia
+  depot 下完整 MySRCore 测试通过。
+- **Residual/Unknown**：未改变 RNN 训练策略或预算；修复后的远程 HOF 影响尚未测量。
+
+## 2026-09-11 - 1.1.3 synchronized backend release preparation
+
+- **变更类型**：发布同步与版本对齐。
+- **Confirmed**：`Project.toml` 版本号更新为 `1.1.3`，`CHANGELOG.md` 与 `FORK_CHANGES.md`
+  记录该版本元数据同步点；等待与前端 MySR 1.1.3 配套发布。
+- **Decision**：后端不再引入本次提交外的功能变更，默认行为沿用 `1.1.2` 已验证路径；
+  后续能力差异主要通过前端参数预算与功能门控实验再度验证。
+
+## 2026-09-11 - Reconcile MySRCore 1.1.3 into isolated mutation-affinity worktree
+
+- **变更类型**：隔离 worktree 合并与冲突调和。
+- **Confirmed**：原始 MySRCore `3756a51` 的 1.1.3 元数据、`Configure.jl` worker
+  package-loading 修复、RNN-GPSR fallback/反馈语料修复已合入
+  `feature/mutation-affinity-reconcile-v1.1.3`；静态 mutation-affinity 与
+  `formula_type` 合法性门控仍保留。
+- **Decision**：采用 1.1.3 的无临时向量在线 affinity 抽样实现；保留
+  `feature_affinity` 尺寸在 mutation 遍历前校验；日志合并保留后端历史记录。
+- **影响路径**：`src/MutationAffinity.jl`、`src/MutationFunctions.jl`、
+  `src/Configure.jl`、`src/PopulationSeeding.jl`、`src/Options.jl`、
+  `src/OptionsStruct.jl`、`src/Mutate.jl`、`src/Core.jl`、`test/runtests.jl`、
+  `Project.toml`、`CHANGELOG.md`、`FORK_CHANGES.md`。
+- **Verification**：隔离 `env_mysr` + Julia 1.10.3 下直接运行 `test/runtests.jl`
+  全部通过；mutation-affinity 9/9、RNN-GPSR 与量纲回归均通过。包级 `Pkg.test()`
+  与 Python bridge 测试待本次提交后继续执行。
+- **Backup**：合并前 HEAD 已保存为
+  `backup/mutation-affinity-pre-reconcile-20260911`；原始 MySR 与 MySRCore
+  checkout 未修改。
+- **Unknown**：未执行大规模 benchmark；affinity 默认强度/探索比例的效果仍不作
+  性能声明。
+
+## 2026-09-12 - Fix strict-dimensional RandomizeMutation expression wrapping
+
+- **Confirmed**：在 1.1.3 与 mutation-affinity worktree 合并后的前端回归中，
+  `formula_type=:theoretical` 的 `RandomizeMutation` 会从量纲生成器得到裸
+  `Node`，但 `MutationResult{N,P}` 要求返回原始 `AbstractExpression` 类型，
+  因此曾触发类型错误。
+- **Decision**：变异入口现在先取得表达式的 mutation contents/context，并在量纲
+  生成成功后按同一 context 重新包装；`TemplateExpression` 等嵌套表达式沿内容
+  上下文递归包装，量纲生成失败时仍使用原有随机回退路径。量纲合法性仍由
+  `formula_type` 的候选生成/检查负责，未把量纲混入 affinity 分数。
+- **影响路径**：`src/Mutate.jl`、`test/runtests.jl`。
+- **Verification**：直接 `test/runtests.jl` 全部通过；`Pkg.test()` 全部通过；
+  MySR 前端 `test_dimensional_formula_type.py` 与 `test_rnn_gpsr_seeding.py`
+  共 `62 passed`（1 个 sklearn 收敛警告）；强制 randomize 的理论量纲小型
+  bridge smoke 通过且确认运行时源码来自本 worktree；配置/量纲轻量前端集成
+  另有 `6 passed`。
+- **Residual/Unknown**：完整的高预算 `test_dimensional_constraints` 在本次
+  bridge 启动的 300 秒上限内未完成；小型同路径 smoke 已通过。前端旧测试
+  `test_mutation_and_plugin_configuration` 仍假设顶层 `SymbolicRegression`
+  包名，而当前 MySRCore 公开边界是 `MySRCore.SymbolicRegression`，未在本
+  后端修复中改变该测试/兼容层；`test_dimension_propagation` 仍使用默认
+  `formula_type="empirical"`，与当前“formula_type 是量纲模式唯一来源”的
+  决策不一致，未将其失败解释为本次后端回归。
+- **Backup**：本修复前的 worktree HEAD 保存在
+  `backup/reconcile-before-randomize-fix-20260911`；工作分支为
+  `feature/mutation-affinity-reconcile-v1.1.3-fix`，修复提交为 `6c2049c`。
+
+## 2026-09-12 - Smoke-test fixes for dimensional and template mutation paths
+
+- **变更类型**：隔离 worktree 中的冒烟测试驱动 bug 修复。
+- **Confirmed**：半理论模式的直接 `RandomizeMutation` 现在会先暂存并解包外层
+  `C_dim`，完成内部随机化后按原系数重新包装；经验模式的
+  `dimensional_scale_coefficient(::AbstractExpression, ...)` 不再误触发
+  `get_tree`。
+- **Confirmed**：`TemplateExpression.get_tree` 不再因 `zip` 截断
+  `f(x, y)` 的变量；多 inner expression 使用声明特征数的总和；固定的常见
+  combiner 算子（如 `sin`）仅在临时 AST 视图中补齐，不改变存储的搜索算子集合。
+- **影响路径**：`src/DimensionalAnalysis.jl`、`src/Mutate.jl`、
+  `src/TemplateExpression.jl`、`test/runtests.jl`。
+- **Verification**：后端 `test/runtests.jl` 全部通过（新增模板回归 11/11，
+  `C_dim`/量纲/affinity 回归均通过）；`env_mysr` 前端量纲与 RNN 测试
+  `62 passed`（1 个 sklearn 收敛警告）；模板主流程集成测试 `1 passed`
+  （95.72 秒）；`git diff --check` 通过。
+- **Residual/Unknown**：默认 200 iterations × 62 populations 的两个
+  fresh-process 模板测试运行超过 6 分钟后按冒烟范围安全中止；任意用户自定义
+  固定 combiner 算子尚未自动发现；一个 type-spec 测试因隔离 Julia project
+  没有旧包名 `SymbolicRegression` 而失败，未归因于本次后端改动。
+- **Backup/Branch**：当前工作分支为
+  `feature/mutation-affinity-smoke-fix-20260912`，本轮前备份为
+  `backup/smoke-before-fix-20260912`；原始 MySR/MySRCore checkout 未修改，
+  未执行远程操作。
+
 ## 2026-09-05 - 建立 crossover 优化隔离 worktree
 
 - 变更类型：算法研究后的隔离实现。

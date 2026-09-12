@@ -1,6 +1,7 @@
 # MySRCore package-contract tests added to the SymbolicRegression.jl baseline.
 using MySRCore
 using Test
+using DynamicExpressions: get_child, get_metadata
 using DynamicQuantities: dimension
 using Random: MersenneTwister
 
@@ -184,6 +185,25 @@ end
     @test seeded_frontier(2026) == seeded_frontier(2026)
 end
 
+@testset "RNN-GPSR tokenization handles unary roots" begin
+    PopulationSeeding = MySRCore.SymbolicRegression.PopulationSeedingModule
+    options = Options(
+        binary_operators=(+,),
+        unary_operators=(sin,),
+        default_plugins=(),
+        maxsize=7,
+    )
+    expression = parse_expression(
+        "sin(x1)";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    tokens = PopulationSeeding._expression_tokens(get_tree(expression), options, 1)
+    @test length(tokens) == 2
+    @test tokens[1] > 1 + 1
+end
+
 @testset "RNN-GPSR training corpus is independent of backend member results" begin
     X = reshape(Float64[1, 2, 3, 4], 1, :)
     y = copy(vec(X))
@@ -243,14 +263,14 @@ end
     options = Options(
         default_plugins=(),
         populations=1,
-        population_size=4,
+        population_size=27,
         tournament_selection_n=2,
         rnn_gpsr_seeding=true,
-        rnn_gpsr_candidate_count=8,
-        rnn_gpsr_proposal_count=4,
+        rnn_gpsr_candidate_count=27,
+        rnn_gpsr_proposal_count=27,
         rnn_gpsr_cycles=0,
         rnn_gpsr_rounds=2,
-        rnn_gpsr_feedback_fraction=0.5,
+        rnn_gpsr_feedback_fraction=0.2,
         rnn_gpsr_quality_gate=false,
         rnn_gpsr_maxsize=5,
         maxsize=7,
@@ -268,7 +288,10 @@ end
         progress=false,
         verbosity=0,
     )
-    @test observed_training_counts == [8, 10]
+    # A small first feedback fraction is appended to (rather than replacing)
+    # the bootstrap corpus.  With candidate_count=27, six feedback examples
+    # extend the initial 27-example corpus to 33 and preserve the minimum.
+    @test observed_training_counts == [27, 33]
     @test observed_feedback_rounds == [1, 2]
     @test observed_backend_cost_flags == [false, true]
 end
@@ -373,7 +396,7 @@ end
             rnn_generator=generator,
         )
     @test observed_counts == [4]
-    @test evaluations == options.population_size
+    @test evaluations == options.population_size + options.rnn_gpsr_candidate_count
 end
 
 @testset "RNN-GPSR feedback count excludes nonfinite members" begin
@@ -401,6 +424,40 @@ end
     @test used == 0
     @test training_sequences == [Int[2]]
     @test training_costs == [1.0]
+end
+
+@testset "RNN-GPSR real feedback can replace structural bootstrap" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        maxsize=7,
+        save_to_file=false,
+        rnn_gpsr_feedback_fraction=1.0,
+    )
+    dataset = Dataset(X, y; variable_names=["x1"])
+    tree = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    member = PopMember(dataset, tree, options; deterministic=true)
+    member.cost = 0.25
+    feedback_members = [copy(member) for _ in 1:8]
+    training_sequences = [Int[2], Int[2, 2]]
+    training_costs = [9.0, 8.0]
+    used = MySRCore.SymbolicRegression.PopulationSeedingModule._append_feedback_examples!(
+        training_sequences,
+        training_costs,
+        feedback_members,
+        options,
+        1;
+        replace_bootstrap=true,
+    )
+    @test used == 8
+    @test training_sequences == [Int[2] for _ in 1:8]
+    @test training_costs == [0.25 for _ in 1:8]
 end
 
 @testset "User guesses have priority over RNN-GPSR seeds" begin
@@ -581,6 +638,44 @@ end
     @test observed_formula_type[] == :theoretical
     @test length(trees) == 1
     @test MySRCore.SymbolicRegression.infer_dimension_static(trees[1], dataset, options).valid
+end
+
+@testset "RNN-GPSR empty callback falls back to valid random trees" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    options = Options(
+        default_plugins=(),
+        maxsize=5,
+        deterministic=true,
+        save_to_file=false,
+    )
+    dataset = Dataset(X, y; variable_names=["x1"])
+    generator(args...) = nothing
+
+    trees = MySRCore.SymbolicRegression.PopulationSeedingModule._generate_proposal_trees(
+        generator,
+        [Int[2] for _ in 1:8],
+        ones(Float64, 8),
+        dataset,
+        Float64,
+        options,
+        1,
+        5,
+        3,
+        2026,
+        MersenneTwister(9),
+    )
+
+    @test length(trees) == 3
+    @test all(
+        tree -> MySRCore.SymbolicRegression.check_constraints(
+            tree,
+            dataset,
+            options,
+            5,
+        ),
+        trees,
+    )
 end
 
 @testset "Formula type dimensional contract" begin
@@ -927,4 +1022,158 @@ end
     @test gen_random_tree_dimensional(
         dataset_length, empirical, 3, 1, Float64, MersenneTwister(1)
     ) === nothing
+end
+
+@testset "Dimensional randomize mutation preserves expression type" begin
+    X = Float64[1 2 3; 1 2 3]
+    y = Float64[2, 4, 6]
+    length_dim = [1, 0, 0, 0, 0, 0, 0]
+    dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1", "x2"],
+        X_dimensions=[length_dim, length_dim],
+        y_dimensions=length_dim,
+    )
+    options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        formula_type=:theoretical,
+        default_plugins=(),
+        maxsize=7,
+    )
+    expr = parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=Node{Float64,2},
+    )
+    member = PopMember(dataset, expr, options; deterministic=true)
+    result = MySRCore.SymbolicRegression.MutateModule.mutate!(
+        copy(member.tree),
+        member,
+        RandomizeMutation(),
+        options;
+        trace=nothing,
+        dataset=dataset,
+        curmaxsize=options.maxsize,
+        nfeatures=2,
+    )
+    @test result.tree isa typeof(member.tree)
+    @test infer_dimension_static(result.tree, dataset, options).valid
+
+    semi_dataset = Dataset(
+        X,
+        y;
+        variable_names=["x1", "x2"],
+        X_dimensions=[length_dim, length_dim],
+        y_dimensions=[2, 0, 0, 0, 0, 0, 0],
+    )
+    semi_options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        formula_type=:semi_theoretical,
+        default_plugins=(),
+        maxsize=7,
+    )
+    semi_expr = parse_expression(
+        "x1";
+        operators=semi_options.operators,
+        variable_names=["x1", "x2"],
+        node_type=Node{Float64,2},
+    )
+    semi_tree = MySRCore.SymbolicRegression.wrap_dimensional_scale(
+        semi_expr, semi_options; coefficient=2.5
+    )
+    semi_member = PopMember(semi_dataset, semi_tree, semi_options; deterministic=true)
+    semi_result = MySRCore.SymbolicRegression.MutateModule.mutate!(
+        copy(semi_member.tree),
+        semi_member,
+        RandomizeMutation(),
+        semi_options;
+        trace=nothing,
+        dataset=semi_dataset,
+        curmaxsize=semi_options.maxsize,
+        nfeatures=2,
+    )
+    @test semi_result.tree isa typeof(semi_member.tree)
+    @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
+        semi_result.tree, semi_options
+    ) == 2.5
+    @test infer_dimension_static(semi_result.tree, semi_dataset, semi_options).valid
+end
+
+@testset "TemplateExpression get_tree preserves declared feature arity" begin
+    options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        formula_type=:empirical,
+        default_plugins=(),
+    )
+    inner = ComposableExpression(
+        Node{Float64,2}(; feature=1);
+        operators=options.operators,
+        variable_names=["x", "y"],
+    )
+    combine_fn = ((; f), (x, y)) -> f(x, y)
+    structure = TemplateStructure{(:f,)}(
+        combine_fn;
+        num_features=(; f=2),
+    )
+    template = TemplateExpression(
+        (; f=inner);
+        structure,
+        operators=options.operators,
+        variable_names=["x", "y"],
+    )
+
+    # `f(x, y)` must receive both declared variables even though the template
+    # contains only one named inner expression.
+    tree = get_tree(template)
+    @test tree isa AbstractExpressionNode
+    @test tree.degree == 0
+    @test tree.feature == 1
+
+    dataset = Dataset(
+        Float64[1 2; 2 3],
+        Float64[1, 2];
+        variable_names=["x", "y"],
+    )
+    @test MySRCore.SymbolicRegression.CheckConstraintsModule.check_constraints(
+        template, dataset, options, options.maxsize
+    )
+
+    # A fixed combiner operation is available to the template expression even
+    # when it is intentionally absent from the evolutionary search vocabulary.
+    fixed_template = TemplateExpression(
+        (; f=inner);
+        structure=TemplateStructure{(:f,)}(
+            ((; f), (x, y)) -> sin(f(x, y));
+            num_features=(; f=2),
+        ),
+        operators=options.operators,
+        variable_names=["x", "y"],
+    )
+    @test sin ∉ options.operators.unaops
+    @test sin ∉ get_metadata(fixed_template).operators.unaops
+    @test fixed_template(Float64[1 2; 2 3]) ≈ sin.([1.0, 2.0])
+    fixed_tree = get_tree(fixed_template)
+    @test fixed_tree.degree == 1
+
+    # For multiple inner expressions, feature arity is the sum of each
+    # expression's declared inputs, rather than the maximum arity.
+    multi_structure = TemplateStructure{(:f, :g)}(
+        ((; f, g), (x1, x2, x3)) -> f(x1, x2) + g(x3);
+        num_features=(; f=2, g=1),
+    )
+    multi_template = TemplateExpression(
+        (; f=inner, g=inner);
+        structure=multi_structure,
+        operators=options.operators,
+        variable_names=["x", "y", "z"],
+    )
+    multi_tree = get_tree(multi_template)
+    @test multi_tree.degree == 2
+    @test get_child(multi_tree, 1).feature == 1
+    @test get_child(multi_tree, 2).feature == 3
 end
