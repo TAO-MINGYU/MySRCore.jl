@@ -53,8 +53,17 @@ end
         child1, child2 = MutationFunctions.size_matched_crossover_trees(
             parent1, parent2, 0.0, MersenneTwister(seed)
         )
+        parent_node_ids = Set(objectid(node) for node in SR.get_tree(parent1))
+        parent_node_ids = union(
+            parent_node_ids, Set(objectid(node) for node in SR.get_tree(parent2))
+        )
+        child_node_ids = Set(objectid(node) for node in SR.get_tree(child1))
+        child_node_ids = union(
+            child_node_ids, Set(objectid(node) for node in SR.get_tree(child2))
+        )
         @test SR.count_nodes(SR.get_tree(child1)) == SR.count_nodes(SR.get_tree(parent1))
         @test SR.count_nodes(SR.get_tree(child2)) == SR.count_nodes(SR.get_tree(parent2))
+        @test isempty(intersect(parent_node_ids, child_node_ids))
         @test SR.string_tree(parent1) == before1
         @test SR.string_tree(parent2) == before2
     end

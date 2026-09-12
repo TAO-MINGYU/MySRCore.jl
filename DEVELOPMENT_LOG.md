@@ -240,3 +240,9 @@
 - **Confirmed**：静态加载层在可写临时 depot 下通过；完整 MySRCore `Pkg.test()` 通过，Size-matched test `66/66`；MySR 前端本地 backend 桥接测试 `62 passed`。
 - **Confirmed**：三层测试均未发现源码 BUG；警告仅为 env depot 只读导致的首次假失败、上游 `@nospecialize`/`OperatorEnum` 弃用提示、线程配置提示和 sklearn 收敛提示。
 - **Decision**：将三层测试命令和 depot 规则写入 crossover plan；当前不再修改已通过的核心运行逻辑，后续性能工作需进入 profiler/匹配 benchmark。
+
+## 2026-09-12 - 三层测试复跑与 aliasing 质量覆盖
+
+- **Confirmed**：按三层协议复跑，静态加载通过；MySRCore `Pkg.test()` 通过，Size-matched test `79/79`；MySR 前端量纲/RNN 聚焦测试 `62 passed`。
+- **Decision**：未发现源码 BUG；为 crossover 增加父子节点 object identity 不重叠的 aliasing 回归测试，防止后续 mutation 通过共享节点修改父代。提交为当前后续提交。
+- **Unknown**：上游弃用与 sklearn 收敛警告仍未解决，未归因于本项目改动。
