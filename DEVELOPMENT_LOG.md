@@ -227,3 +227,10 @@
 - **Confirmed**：复核本地代码优先合并后的差异时发现，`size_matched_crossover_trees(::AbstractExpression, ...)` 的 tolerance 参数曾匿名声明却在函数体引用，TemplateExpression/custom wrapper 会触发 `UndefVarError`。
 - **Decision**：恢复具名参数并新增 TemplateExpression fallback 的非法 tolerance 回归断言；修复提交为 `5eed25a`，修复前备份为 `backup/pre-size-matched-fallback-fix-20260912`。
 - **验证**：MySRCore `Pkg.test()` 全部通过，TemplateExpression 回归为 `12/12`；未改变 canonical checkout。
+
+## 2026-09-12 - 三次基础测试第 1/2 轮
+
+- **Confirmed**：静态加载测试在使用可写临时 Julia depot 后通过；首次失败来自 `env_mysr` 只读 depot 的 precompile pidfile，而非源码。
+- **Confirmed**：完整 MySRCore `Pkg.test()` 通过，Size-matched crossover test 当前 `66/66`；未发现代码 BUG。
+- **Decision**：增加尺寸选择器的精确命中、最近尺寸 fallback 和并列候选覆盖；下一步补充公共构造器文档与 `Inf` 边界测试。
+- **Unknown**：上游 DynamicExpressions 的 `OperatorEnum` 弃用警告仍存在，未归因于本次 crossover。

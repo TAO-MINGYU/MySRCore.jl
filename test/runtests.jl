@@ -39,6 +39,14 @@ end
     @test_throws ArgumentError MutationFunctions.size_matched_crossover_trees(
         parent1, parent2, -0.1, MersenneTwister(1)
     )
+    @test MutationFunctions._select_size_matched_index(
+        [1, 2, 3], 2, 0.0, MersenneTwister(1)
+    ) == 2
+    for seed in 1:12
+        @test MutationFunctions._select_size_matched_index(
+            [1, 2, 4], 3, 0.0, MersenneTwister(seed)
+        ) in (2, 3)
+    end
     before1, before2 = SR.string_tree(parent1), SR.string_tree(parent2)
     for seed in 1:12
         child1, child2 = MutationFunctions.size_matched_crossover_trees(
