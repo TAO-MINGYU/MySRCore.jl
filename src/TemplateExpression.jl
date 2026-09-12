@@ -15,6 +15,7 @@ using DynamicExpressions:
     AbstractOperatorEnum,
     Node,
     OperatorEnum,
+    GenericOperatorEnum,
     Metadata,
     EvalContext,
     get_contents,
@@ -112,6 +113,95 @@ struct TemplateStructure{K,Kp,E<:Function,NF<:NamedTuple{K},NP<:NamedTuple{Kp}} 
     num_features::NF
     num_parameters::NP
 end
+
+# Template combiners may contain fixed mathematical operations which are not
+# part of the evolutionary search vocabulary.  Keep those operations available
+# to the composable inner expressions without adding them to `Options.operators`
+# (which remains the set used for tree generation and mutation).
+const _TEMPLATE_UNARY_OPERATORS = (
+    sin,
+    cos,
+    tan,
+    sinh,
+    cosh,
+    tanh,
+    asin,
+    acos,
+    asinh,
+    acosh,
+    atanh,
+    log,
+    log2,
+    log10,
+    log1p,
+    exp,
+    exp2,
+    exp10,
+    expm1,
+    abs,
+    real,
+    imag,
+    conj,
+    floor,
+    ceil,
+    round,
+    trunc,
+    inv,
+    sqrt,
+    cbrt,
+    abs2,
+    sign,
+    identity,
+)
+const _TEMPLATE_BINARY_OPERATORS = (+, -, *, /, ^, mod, log, max, min)
+
+function _append_missing_template_operators(existing::Tuple, extras::Tuple)
+    additions = Tuple(
+        op for op in extras if all(existing_op -> existing_op !== op, existing)
+    )
+    return (existing..., additions...)
+end
+
+function _template_operators(operators::OperatorEnum)
+    old_ops = operators.ops
+    n = max(length(old_ops), 2)
+    ops = ntuple(n) do degree
+        current = degree <= length(old_ops) ? old_ops[degree] : ()
+        return if degree == 1
+            _append_missing_template_operators(current, _TEMPLATE_UNARY_OPERATORS)
+        elseif degree == 2
+            _append_missing_template_operators(current, _TEMPLATE_BINARY_OPERATORS)
+        else
+            current
+        end
+    end
+    return OperatorEnum(ops)
+end
+
+function _template_operators(operators::GenericOperatorEnum)
+    old_ops = operators.ops
+    n = max(length(old_ops), 2)
+    ops = ntuple(n) do degree
+        current = degree <= length(old_ops) ? old_ops[degree] : ()
+        return if degree == 1
+            _append_missing_template_operators(current, _TEMPLATE_UNARY_OPERATORS)
+        elseif degree == 2
+            _append_missing_template_operators(current, _TEMPLATE_BINARY_OPERATORS)
+        else
+            current
+        end
+    end
+    return GenericOperatorEnum(ops)
+end
+
+_template_operators(operators::Union{AbstractOperatorEnum,Nothing}) = operators
+
+function _with_template_operators(
+    ex::AbstractComposableExpression, operators::AbstractOperatorEnum
+)
+    return with_metadata(ex; operators)
+end
+_with_template_operators(ex, ::Union{AbstractOperatorEnum,Nothing}) = ex
 
 function TemplateStructure{K}(
     combine::E,
@@ -519,16 +609,32 @@ end
 
 function DE.get_tree(ex::TemplateExpression{<:Any,<:Any,<:Any,E}) where {E}
     raw_contents = get_contents(ex)
-    total_num_features = max(values(get_metadata(ex).structure.num_features)...)
-    example_inner_ex = first(values(raw_contents))
+    declared_variable_names = get_variable_names(ex)
+    inferred_num_features = sum(values(get_metadata(ex).structure.num_features); init=0)
+    total_num_features = declared_variable_names === nothing ?
+        inferred_num_features : max(length(declared_variable_names), inferred_num_features)
+    # The combiner can contain fixed operations (for example `sin`) that are
+    # intentionally absent from the evolutionary search vocabulary.  Enrich
+    # only this temporary AST-building view; stored inner expressions retain
+    # the exact user-selected operators used by search and evaluation.
+    tree_operators = _template_operators(get_operators(ex))
+    tree_contents = NamedTuple{keys(raw_contents)}(
+        map(Base.Fix2(_with_template_operators, tree_operators), values(raw_contents))
+    )
+    example_inner_ex = first(values(tree_contents))
     example_tree = get_contents(example_inner_ex)::AbstractExpressionNode
 
     variable_trees = [
         DE.constructorof(typeof(example_tree))(; feature=i) for i in 1:total_num_features
     ]
+    # The second argument to `combine` is the tuple of variables available to
+    # every inner composable expression.  Its length is determined by the
+    # template's feature constraints, not by the number of named inner
+    # expressions.  Using `zip(values(raw_contents), variable_trees)` here
+    # silently truncated templates such as `f(x, y)` when only one inner
+    # expression (`f`) was declared.
     variable_expressions = [
-        with_contents(inner_ex, variable_tree) for
-        (inner_ex, variable_tree) in zip(values(raw_contents), variable_trees)
+        with_contents(example_inner_ex, variable_tree) for variable_tree in variable_trees
     ]
     if has_params(ex)
         throw(
@@ -539,7 +645,7 @@ function DE.get_tree(ex::TemplateExpression{<:Any,<:Any,<:Any,E}) where {E}
     end
 
     return DE.get_tree(
-        combine(get_metadata(ex).structure, raw_contents, variable_expressions)
+        combine(get_metadata(ex).structure, tree_contents, variable_expressions)
     )
 end
 

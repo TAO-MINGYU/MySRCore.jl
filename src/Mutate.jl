@@ -856,10 +856,14 @@ function mutate!(
     nfeatures,
     kws...,
 ) where {T,N<:AbstractExpression{T},P<:AbstractPopMember}
+    dimensional_coefficient = dimension_policy(options) === :compatible ?
+        dimensional_scale_coefficient(new_tree, options) : nothing
+    mutation_base = dimensional_coefficient === nothing ?
+        new_tree : unwrap_dimensional_scale(new_tree, options)
     rng = default_rng()
-    mutation_contents, mutation_context = get_contents_for_mutation(new_tree, rng)
+    mutation_contents, mutation_context = get_contents_for_mutation(mutation_base, rng)
     local_nfeatures = get_nfeatures_for_mutation(
-        new_tree, mutation_context, nfeatures
+        mutation_base, mutation_context, nfeatures
     )
     typed_tree = gen_random_tree_dimensional(
         dataset, options, 1, local_nfeatures, T, rng; max_nodes=curmaxsize
@@ -869,7 +873,10 @@ function mutate!(
     else
         _with_generated_tree_for_mutation(mutation_contents, typed_tree, rng)
     end
-    new_tree = with_contents_for_mutation(new_tree, new_contents, mutation_context)
+    new_tree = with_contents_for_mutation(mutation_base, new_contents, mutation_context)
+    dimensional_coefficient === nothing || (new_tree = rewrap_dimensional_scale(
+        new_tree, options; coefficient=dimensional_coefficient
+    ))
     trace_mutation_type!(trace, "randomize")
     return MutationResult{N,P}(; tree=new_tree)
 end

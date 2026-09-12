@@ -164,3 +164,28 @@
 - **Backup**：本修复前的 worktree HEAD 保存在
   `backup/reconcile-before-randomize-fix-20260911`；工作分支为
   `feature/mutation-affinity-reconcile-v1.1.3-fix`，修复提交为 `6c2049c`。
+
+## 2026-09-12 - Smoke-test fixes for dimensional and template mutation paths
+
+- **变更类型**：隔离 worktree 中的冒烟测试驱动 bug 修复。
+- **Confirmed**：半理论模式的直接 `RandomizeMutation` 现在会先暂存并解包外层
+  `C_dim`，完成内部随机化后按原系数重新包装；经验模式的
+  `dimensional_scale_coefficient(::AbstractExpression, ...)` 不再误触发
+  `get_tree`。
+- **Confirmed**：`TemplateExpression.get_tree` 不再因 `zip` 截断
+  `f(x, y)` 的变量；多 inner expression 使用声明特征数的总和；固定的常见
+  combiner 算子（如 `sin`）仅在临时 AST 视图中补齐，不改变存储的搜索算子集合。
+- **影响路径**：`src/DimensionalAnalysis.jl`、`src/Mutate.jl`、
+  `src/TemplateExpression.jl`、`test/runtests.jl`。
+- **Verification**：后端 `test/runtests.jl` 全部通过（新增模板回归 11/11，
+  `C_dim`/量纲/affinity 回归均通过）；`env_mysr` 前端量纲与 RNN 测试
+  `62 passed`（1 个 sklearn 收敛警告）；模板主流程集成测试 `1 passed`
+  （95.72 秒）；`git diff --check` 通过。
+- **Residual/Unknown**：默认 200 iterations × 62 populations 的两个
+  fresh-process 模板测试运行超过 6 分钟后按冒烟范围安全中止；任意用户自定义
+  固定 combiner 算子尚未自动发现；一个 type-spec 测试因隔离 Julia project
+  没有旧包名 `SymbolicRegression` 而失败，未归因于本次后端改动。
+- **Backup/Branch**：当前工作分支为
+  `feature/mutation-affinity-smoke-fix-20260912`，本轮前备份为
+  `backup/smoke-before-fix-20260912`；原始 MySR/MySRCore checkout 未修改，
+  未执行远程操作。

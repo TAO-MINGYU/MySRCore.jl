@@ -75,6 +75,7 @@ function dimensional_scale_coefficient(
 end
 
 function dimensional_scale_coefficient(ex::AbstractExpression, options::AbstractOptions)
+    dimension_policy(options) === :compatible || return nothing
     return dimensional_scale_coefficient(get_tree(ex), options)
 end
 
