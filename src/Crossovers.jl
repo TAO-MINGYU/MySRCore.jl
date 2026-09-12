@@ -32,7 +32,26 @@ abstract type AbstractCrossover end
 """Swap a random subtree of one parent with a random subtree of the other."""
 struct SubtreeCrossover <: AbstractCrossover end
 
-const BUILTIN_CROSSOVER_TYPES = (SubtreeCrossover,)
+"""
+    SizeMatchedCrossover(; size_tolerance=0.25)
+
+Swap subtrees selected to have similar node counts. The first parent keeps the
+existing uniform node selection; the donor is sampled uniformly from nodes
+within the relative tolerance when possible, otherwise from the nearest-size
+nodes. This crossover is opt-in and is not part of `default_crossovers()`.
+"""
+struct SizeMatchedCrossover <: AbstractCrossover
+    size_tolerance::Float64
+
+    function SizeMatchedCrossover(; size_tolerance::Real=0.25)
+        tolerance = Float64(size_tolerance)
+        isfinite(tolerance) && tolerance >= 0 ||
+            throw(ArgumentError("size_tolerance must be finite and nonnegative"))
+        return new(tolerance)
+    end
+end
+
+const BUILTIN_CROSSOVER_TYPES = (SubtreeCrossover, SizeMatchedCrossover)
 
 """
     default_crossovers() -> Vector{Pair{AbstractCrossover,Float64}}

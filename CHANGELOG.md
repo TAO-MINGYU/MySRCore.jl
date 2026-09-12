@@ -1,5 +1,15 @@
 # Changelog
 
+## MySRCore 1.1.3 (2026-09-11)
+
+- Published the release paired with MySR 1.1.3 after synchronized AFE and
+  RNN-GPSR capability hardening.
+
+## MySRCore 1.1.2 (2026-09-08)
+
+- Published the patch release paired with MySR 1.1.2 for the matched capability
+  ablation benchmark. Search behavior remains the 1.1.1 RNN-GPSR implementation.
+
 ## MySRCore 1.1.0 (2026-09-02)
 
 - Added formula_type-aware RNN-GPSR seeding with a backend-owned dimensional gate,
@@ -1086,3 +1096,8 @@ traceability. They describe SymbolicRegression.jl releases, not MySRCore release
 ### Bug Fixes
 
 - 10 issue with hall of fame not saving ([c9adc43](https://github.com/astroautomata/SymbolicRegression.jl/commit/c9adc43d8dd7ac54579b9d1249fe3f71a385c161))
+## MySRCore 1.1.1 (2026-09-07)
+
+- Compatibility release paired with MySR 1.1.1. The backend package version is
+  advanced so the frontend can pin the corrected release while preserving the
+  existing RNN-GPSR feedback behavior.

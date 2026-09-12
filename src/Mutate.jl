@@ -1,5 +1,6 @@
 module MutateModule
 
+using Random: AbstractRNG, default_rng
 using DispatchDoctor: @unstable
 using DynamicExpressions:
     AbstractExpression,
@@ -61,16 +62,30 @@ using ..MutationFunctionsModule:
     break_random_connection!,
     randomly_rotate_tree!,
     randomize_tree,
-    backsolve_rewrite_random_node
+    backsolve_rewrite_random_node,
+    get_contents_for_mutation,
+    with_contents_for_mutation,
+    get_nfeatures_for_mutation
 using ..DimensionGenerationModule: gen_random_tree_dimensional
 using ..DimensionalAnalysisModule:
     unwrap_dimensional_scale,
     wrap_dimensional_scale,
     rewrap_dimensional_scale,
-    dimensional_scale_coefficient
+    dimensional_scale_coefficient,
+    dimensional_scale_identity
 using ..ConstantOptimizationModule: optimize_constants
 using ..TracingModule:
     trace_identity_mutation!, trace_mutation_result!, trace_mutation_type!
+
+function _with_generated_tree_for_mutation(
+    contents::AbstractExpression, generated_tree, rng::AbstractRNG
+)
+    inner_contents, context = get_contents_for_mutation(contents, rng)
+    new_inner = _with_generated_tree_for_mutation(inner_contents, generated_tree, rng)
+    return with_contents_for_mutation(contents, new_inner, context)
+end
+
+_with_generated_tree_for_mutation(_, generated_tree, ::AbstractRNG) = generated_tree
 
 abstract type AbstractMutationResult{N<:AbstractExpression,P<:AbstractPopMember} end
 
@@ -363,9 +378,9 @@ function _next_generation(
     attempts = 0
     max_attempts = 10
     mutation_base = unwrap_dimensional_scale(member.tree, options)
-    dimensional_coefficient = something(
-        dimensional_scale_coefficient(member.tree, options), one(T)
-    )
+    dimensional_coefficient = dimensional_scale_coefficient(member.tree, options)
+    dimensional_coefficient === nothing &&
+        (dimensional_coefficient = dimensional_scale_identity(T))
     node_storage = allocate_container(mutation_base)
 
     mut_context = prepare_mutation_context(mutation_choice)
@@ -651,9 +666,11 @@ function mutate!(
     ::OperatorMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    dataset=nothing,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = mutate_operator(new_tree, options)
+    scope = dimension_policy(options) === :compatible ? :internal : :full
+    new_tree = mutate_operator(new_tree, options; dataset, scope)
     trace_mutation_type!(trace, "mutate_operator")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -665,9 +682,11 @@ function mutate!(
     options::AbstractOptions;
     trace::MaybeTrace,
     nfeatures,
+    dataset=nothing,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = mutate_feature(new_tree, nfeatures)
+    scope = dimension_policy(options) === :compatible ? :internal : :full
+    new_tree = mutate_feature(new_tree, nfeatures; dataset, options, scope)
     trace_mutation_type!(trace, "mutate_feature")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -838,10 +857,27 @@ function mutate!(
     nfeatures,
     kws...,
 ) where {T,N<:AbstractExpression{T},P<:AbstractPopMember}
-    typed_tree = gen_random_tree_dimensional(
-        dataset, options, 1, nfeatures, T; max_nodes=curmaxsize
+    dimensional_coefficient = dimension_policy(options) === :compatible ?
+        dimensional_scale_coefficient(new_tree, options) : nothing
+    mutation_base = dimensional_coefficient === nothing ?
+        new_tree : unwrap_dimensional_scale(new_tree, options)
+    rng = default_rng()
+    mutation_contents, mutation_context = get_contents_for_mutation(mutation_base, rng)
+    local_nfeatures = get_nfeatures_for_mutation(
+        mutation_base, mutation_context, nfeatures
     )
-    new_tree = something(typed_tree, randomize_tree(new_tree, curmaxsize, options, nfeatures))
+    typed_tree = gen_random_tree_dimensional(
+        dataset, options, 1, local_nfeatures, T, rng; max_nodes=curmaxsize
+    )
+    new_contents = if typed_tree === nothing
+        randomize_tree(mutation_contents, curmaxsize, options, local_nfeatures, rng)
+    else
+        _with_generated_tree_for_mutation(mutation_contents, typed_tree, rng)
+    end
+    new_tree = with_contents_for_mutation(mutation_base, new_contents, mutation_context)
+    dimensional_coefficient === nothing || (new_tree = rewrap_dimensional_scale(
+        new_tree, options; coefficient=dimensional_coefficient
+    ))
     trace_mutation_type!(trace, "randomize")
     return MutationResult{N,P}(; tree=new_tree)
 end

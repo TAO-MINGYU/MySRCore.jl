@@ -1,6 +1,6 @@
 module MutationFunctionsModule
 
-using Random: default_rng, AbstractRNG
+using Random: default_rng, AbstractRNG, shuffle!
 using DynamicExpressions:
     AbstractExpressionNode,
     AbstractExpression,
@@ -16,10 +16,20 @@ using DynamicExpressions:
     has_operators,
     get_child,
     set_child!,
-    max_degree
+    max_degree,
+    preserve_sharing
 using Statistics: median
 using ..CoreModule:
-    AbstractOptions, DATA_TYPE, init_value, sample_value, Dataset, ConstantMutation
+    AbstractOptions,
+    DATA_TYPE,
+    init_value,
+    sample_value,
+    Dataset,
+    ConstantMutation,
+    dimension_policy
+using ..DimensionalAnalysisModule: infer_dimension_static
+using ..DimensionalAnalysisModule: is_dimensional_scale_wrapper
+using ..CoreModule.MutationAffinityModule: sample_affinity_target
 using ..EvaluateInverseModule: eval_inverse_tree_array, is_bad_array
 using ..BacksolveModule: fit_sparse_expression, configured_backsolve
 
@@ -102,21 +112,97 @@ end
 
 """Randomly convert an operator into another one (binary->binary; unary->unary)"""
 function mutate_operator(
-    ex::AbstractExpression{T}, options::AbstractOptions, rng::AbstractRNG=default_rng()
+    ex::AbstractExpression{T},
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    scope::Symbol=:full,
 ) where {T<:DATA_TYPE}
     tree, context = get_contents_for_mutation(ex, rng)
-    ex = with_contents_for_mutation(ex, mutate_operator(tree, options, rng), context)
+    ex = with_contents_for_mutation(
+        ex,
+        mutate_operator(tree, options, rng; dataset, scope),
+        context,
+    )
     return ex
 end
 function mutate_operator(
-    tree::AbstractExpressionNode, options::AbstractOptions, rng::AbstractRNG=default_rng()
+    tree::AbstractExpressionNode,
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    scope::Symbol=:full,
 )
-    if !(has_operators(tree))
+    if !has_operators(tree)
         return tree
     end
-    node = rand(rng, NodeSampler(; tree, filter=t -> t.degree != 0))
-    node.op = rand(rng, 1:(options.nops[node.degree]))
+    nodes = [node for node in tree if node.degree != 0]
+    shuffle!(rng, nodes)
+    for node in nodes
+        scope === :full &&
+            dimension_policy(options) === :compatible &&
+            is_dimensional_scale_wrapper(tree, options) &&
+            node === tree && continue
+        targets = _mutation_operator_targets(tree, node, options; dataset, scope)
+        isempty(targets) && continue
+        node.op = _sample_operator_target(rng, node.op, node.degree, targets, options)
+        return tree
+    end
     return tree
+end
+
+function _dimensionally_valid_mutation(
+    tree::AbstractExpressionNode,
+    node,
+    target_op::Int,
+    options::AbstractOptions,
+    dataset,
+    scope::Symbol,
+)
+    dataset === nothing && return true
+    policy = dimension_policy(options)
+    policy === :ignore && return true
+    old_op = node.op
+    try
+        node.op = target_op
+        return infer_dimension_static(tree, dataset, options; scope=scope).valid
+    finally
+        node.op = old_op
+    end
+end
+
+function _mutation_operator_targets(
+    tree::AbstractExpressionNode,
+    node,
+    options::AbstractOptions;
+    dataset=nothing,
+    scope::Symbol=:full,
+)
+    old_op = node.op
+    targets = Int[]
+    for target_op in 1:options.nops[node.degree]
+        target_op == old_op && continue
+        _dimensionally_valid_mutation(tree, node, target_op, options, dataset, scope) &&
+            push!(targets, target_op)
+    end
+    node.op = old_op
+    return targets
+end
+
+function _sample_operator_target(
+    rng::AbstractRNG,
+    old_op::Integer,
+    degree::Integer,
+    targets::Vector{Int},
+    options::AbstractOptions,
+)
+    isempty(targets) && return old_op
+    weights = options.mutation_affinity === :none ?
+        ones(Float64, length(targets)) :
+        Float64[options.operator_affinity[Int(degree)][Int(old_op), target] for target in targets]
+    return sample_affinity_target(
+        rng, targets, weights, options.mutation_affinity_exploration
+    )
 end
 
 """Randomly perturb a constant."""
@@ -186,22 +272,77 @@ end
 
 """Randomly change which feature a variable node points to"""
 function mutate_feature(
-    ex::AbstractExpression{T}, nfeatures::Int, rng::AbstractRNG=default_rng()
+    ex::AbstractExpression{T},
+    nfeatures::Int,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    options=nothing,
+    scope::Symbol=:full,
 ) where {T<:DATA_TYPE}
     tree, context = get_contents_for_mutation(ex, rng)
     local_nfeatures = get_nfeatures_for_mutation(ex, context, nfeatures)
-    ex = with_contents_for_mutation(ex, mutate_feature(tree, local_nfeatures, rng), context)
+    ex = with_contents_for_mutation(
+        ex,
+        mutate_feature(tree, local_nfeatures, rng; dataset, options, scope),
+        context,
+    )
     return ex
 end
 function mutate_feature(
-    tree::AbstractExpressionNode{T}, nfeatures::Int, rng::AbstractRNG=default_rng()
+    tree::AbstractExpressionNode{T},
+    nfeatures::Int,
+    rng::AbstractRNG=default_rng();
+    dataset=nothing,
+    options=nothing,
+    scope::Symbol=:full,
 ) where {T<:DATA_TYPE}
     # Quick checks for if there is nothing to do
     nfeatures <= 1 && return tree
     !any(node -> node.degree == 0 && !node.constant, tree) && return tree
+    if options !== nothing && options.feature_affinity !== nothing
+        size(options.feature_affinity, 1) == nfeatures ||
+            throw(ArgumentError(
+                "`feature_affinity` must match the number of features used by mutation."
+            ))
+    end
 
-    node = rand(rng, NodeSampler(; tree, filter=t -> (t.degree == 0 && !t.constant)))
-    node.feature = rand(rng, filter(!=(node.feature), 1:nfeatures))
+    nodes = [node for node in tree if node.degree == 0 && !node.constant]
+    shuffle!(rng, nodes)
+    for node in nodes
+        old_feature = node.feature
+        targets = Int[]
+        for feature in 1:nfeatures
+            feature == old_feature && continue
+            node.feature = feature
+            valid = try
+                policy = options === nothing ? :ignore : dimension_policy(options)
+                if dataset === nothing || policy === :ignore
+                    true
+                else
+                    infer_dimension_static(tree, dataset, options; scope=scope).valid
+                end
+            finally
+                node.feature = old_feature
+            end
+            valid && push!(targets, feature)
+        end
+        isempty(targets) && continue
+        weights = if options === nothing ||
+            options.mutation_affinity === :none ||
+            options.feature_affinity === nothing
+            ones(Float64, length(targets))
+        else
+            matrix = options.feature_affinity
+            Float64[matrix[old_feature, target] for target in targets]
+        end
+        node.feature = sample_affinity_target(
+            rng,
+            targets,
+            weights,
+            options === nothing ? 1.0 : options.mutation_affinity_exploration,
+        )
+        return tree
+    end
     return tree
 end
 
@@ -538,6 +679,123 @@ function crossover_trees(
     end
 
     return t1, t2
+end
+
+"""Crossover whose donor subtree is selected to match the receiver size."""
+function size_matched_crossover_trees(
+    ex1::Expression,
+    ex2::Expression,
+    size_tolerance::Real,
+    rng::AbstractRNG=default_rng(),
+)
+    size_tolerance = _validated_size_tolerance(size_tolerance)
+    tree1, context1 = get_contents_for_mutation(ex1, rng)
+    tree2, context2 = get_contents_for_mutation(ex2, rng)
+    out1, out2 = size_matched_crossover_trees(tree1, tree2, size_tolerance, rng)
+    return with_contents_for_mutation(ex1, out1, context1),
+        with_contents_for_mutation(ex2, out2, context2)
+end
+
+# Custom expression wrappers (including TemplateExpression) own their crossover
+# semantics, so retain the existing specialized dispatch for them.
+function size_matched_crossover_trees(
+    ex1::AbstractExpression,
+    ex2::AbstractExpression,
+    size_tolerance::Real,
+    rng::AbstractRNG=default_rng(),
+)
+    _validated_size_tolerance(size_tolerance)
+    return crossover_trees(ex1, ex2, rng)
+end
+
+function _collect_nodes_with_sizes!(
+    nodes::Vector{N}, sizes::Vector{Int}, node::N
+) where {N<:AbstractExpressionNode}
+    subtree_size = 1
+    for i in 1:node.degree
+        subtree_size += _collect_nodes_with_sizes!(nodes, sizes, get_child(node, i))
+    end
+    push!(nodes, node)
+    push!(sizes, subtree_size)
+    return subtree_size
+end
+
+function size_matched_crossover_trees(
+    tree1::N,
+    tree2::N,
+    size_tolerance::Real,
+    rng::AbstractRNG=default_rng(),
+) where {N<:AbstractExpressionNode}
+    tree1 === tree2 && error("Attempted to crossover the same tree!")
+    size_tolerance = _validated_size_tolerance(size_tolerance)
+    preserve_sharing(tree1) && return crossover_trees(tree1, tree2, rng)
+
+    t1 = copy(tree1)
+    t2 = copy(tree2)
+    n1, p1, i1 = _random_node_and_parent(t1, rng)
+    target_size = count_nodes(n1)
+
+    donor_nodes = N[]
+    donor_sizes = Int[]
+    _collect_nodes_with_sizes!(donor_nodes, donor_sizes, t2)
+    donor_index = _select_size_matched_index(
+        donor_sizes, target_size, size_tolerance, rng
+    )
+    n2 = donor_nodes[donor_index]
+    n1_copy = copy(n1)
+
+    if i1 == 0
+        t1 = copy(n2)
+    else
+        set_child!(p1, copy(n2), i1)
+    end
+    p2, i2 = n2 === t2 ? (t2, 0) : _find_parent(t2, n2)
+    if i2 == 0
+        t2 = n1_copy
+    else
+        set_child!(p2, n1_copy, i2)
+    end
+    return t1, t2
+end
+
+@inline function _validated_size_tolerance(size_tolerance::Real)
+    tolerance = Float64(size_tolerance)
+    isfinite(tolerance) && tolerance >= 0 ||
+        throw(ArgumentError("size_tolerance must be finite and nonnegative"))
+    return tolerance
+end
+
+function _select_size_matched_index(
+    donor_sizes::Vector{Int}, target_size::Int, size_tolerance::Float64, rng::AbstractRNG
+)
+    isempty(donor_sizes) && throw(ArgumentError("donor_sizes must not be empty"))
+    target_size > 0 || throw(ArgumentError("target_size must be positive"))
+    isfinite(size_tolerance) && size_tolerance >= 0 ||
+        throw(ArgumentError("size_tolerance must be finite and nonnegative"))
+    eligible_count = 0
+    eligible_index = 0
+    nearest_distance = typemax(Int)
+    nearest_count = 0
+    nearest_index = 0
+    for (index, donor_size) in enumerate(donor_sizes)
+        distance = abs(donor_size - target_size)
+        if distance <= size_tolerance * target_size
+            eligible_count += 1
+            if eligible_count == 1 || rand(rng, 1:eligible_count) == 1
+                eligible_index = index
+            end
+        elseif distance < nearest_distance
+            nearest_distance = distance
+            nearest_count = 1
+            nearest_index = index
+        elseif distance == nearest_distance
+            nearest_count += 1
+            if rand(rng, 1:nearest_count) == 1
+                nearest_index = index
+            end
+        end
+    end
+    return eligible_count > 0 ? eligible_index : nearest_index
 end
 
 function get_two_nodes_without_loop(tree::AbstractNode, rng::AbstractRNG; max_attempts=10)
