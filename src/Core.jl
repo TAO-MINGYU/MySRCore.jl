@@ -50,7 +50,11 @@ using .MutationsModule:
     BUILTIN_MUTATION_TYPES,
     default_mutations
 using .CrossoversModule:
-    AbstractCrossover, SubtreeCrossover, BUILTIN_CROSSOVER_TYPES, default_crossovers
+    AbstractCrossover,
+    SubtreeCrossover,
+    SizeMatchedCrossover,
+    BUILTIN_CROSSOVER_TYPES,
+    default_crossovers
 using .OptionsStructModule:
     AbstractOptions,
     Options,

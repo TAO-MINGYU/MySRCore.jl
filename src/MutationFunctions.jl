@@ -16,7 +16,8 @@ using DynamicExpressions:
     has_operators,
     get_child,
     set_child!,
-    max_degree
+    max_degree,
+    preserve_sharing
 using Statistics: median
 using ..CoreModule:
     AbstractOptions,
@@ -678,6 +679,123 @@ function crossover_trees(
     end
 
     return t1, t2
+end
+
+"""Crossover whose donor subtree is selected to match the receiver size."""
+function size_matched_crossover_trees(
+    ex1::Expression,
+    ex2::Expression,
+    size_tolerance::Real,
+    rng::AbstractRNG=default_rng(),
+)
+    size_tolerance = _validated_size_tolerance(size_tolerance)
+    tree1, context1 = get_contents_for_mutation(ex1, rng)
+    tree2, context2 = get_contents_for_mutation(ex2, rng)
+    out1, out2 = size_matched_crossover_trees(tree1, tree2, size_tolerance, rng)
+    return with_contents_for_mutation(ex1, out1, context1),
+        with_contents_for_mutation(ex2, out2, context2)
+end
+
+# Custom expression wrappers (including TemplateExpression) own their crossover
+# semantics, so retain the existing specialized dispatch for them.
+function size_matched_crossover_trees(
+    ex1::AbstractExpression,
+    ex2::AbstractExpression,
+    size_tolerance::Real,
+    rng::AbstractRNG=default_rng(),
+)
+    _validated_size_tolerance(size_tolerance)
+    return crossover_trees(ex1, ex2, rng)
+end
+
+function _collect_nodes_with_sizes!(
+    nodes::Vector{N}, sizes::Vector{Int}, node::N
+) where {N<:AbstractExpressionNode}
+    subtree_size = 1
+    for i in 1:node.degree
+        subtree_size += _collect_nodes_with_sizes!(nodes, sizes, get_child(node, i))
+    end
+    push!(nodes, node)
+    push!(sizes, subtree_size)
+    return subtree_size
+end
+
+function size_matched_crossover_trees(
+    tree1::N,
+    tree2::N,
+    size_tolerance::Real,
+    rng::AbstractRNG=default_rng(),
+) where {N<:AbstractExpressionNode}
+    tree1 === tree2 && error("Attempted to crossover the same tree!")
+    size_tolerance = _validated_size_tolerance(size_tolerance)
+    preserve_sharing(tree1) && return crossover_trees(tree1, tree2, rng)
+
+    t1 = copy(tree1)
+    t2 = copy(tree2)
+    n1, p1, i1 = _random_node_and_parent(t1, rng)
+    target_size = count_nodes(n1)
+
+    donor_nodes = N[]
+    donor_sizes = Int[]
+    _collect_nodes_with_sizes!(donor_nodes, donor_sizes, t2)
+    donor_index = _select_size_matched_index(
+        donor_sizes, target_size, size_tolerance, rng
+    )
+    n2 = donor_nodes[donor_index]
+    n1_copy = copy(n1)
+
+    if i1 == 0
+        t1 = copy(n2)
+    else
+        set_child!(p1, copy(n2), i1)
+    end
+    p2, i2 = n2 === t2 ? (t2, 0) : _find_parent(t2, n2)
+    if i2 == 0
+        t2 = n1_copy
+    else
+        set_child!(p2, n1_copy, i2)
+    end
+    return t1, t2
+end
+
+@inline function _validated_size_tolerance(size_tolerance::Real)
+    tolerance = Float64(size_tolerance)
+    isfinite(tolerance) && tolerance >= 0 ||
+        throw(ArgumentError("size_tolerance must be finite and nonnegative"))
+    return tolerance
+end
+
+function _select_size_matched_index(
+    donor_sizes::Vector{Int}, target_size::Int, size_tolerance::Float64, rng::AbstractRNG
+)
+    isempty(donor_sizes) && throw(ArgumentError("donor_sizes must not be empty"))
+    target_size > 0 || throw(ArgumentError("target_size must be positive"))
+    isfinite(size_tolerance) && size_tolerance >= 0 ||
+        throw(ArgumentError("size_tolerance must be finite and nonnegative"))
+    eligible_count = 0
+    eligible_index = 0
+    nearest_distance = typemax(Int)
+    nearest_count = 0
+    nearest_index = 0
+    for (index, donor_size) in enumerate(donor_sizes)
+        distance = abs(donor_size - target_size)
+        if distance <= size_tolerance * target_size
+            eligible_count += 1
+            if eligible_count == 1 || rand(rng, 1:eligible_count) == 1
+                eligible_index = index
+            end
+        elseif distance < nearest_distance
+            nearest_distance = distance
+            nearest_count = 1
+            nearest_index = index
+        elseif distance == nearest_distance
+            nearest_count += 1
+            if rand(rng, 1:nearest_count) == 1
+                nearest_index = index
+            end
+        end
+    end
+    return eligible_count > 0 ? eligible_index : nearest_index
 end
 
 function get_two_nodes_without_loop(tree::AbstractNode, rng::AbstractRNG; max_attempts=10)

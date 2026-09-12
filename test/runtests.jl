@@ -11,6 +11,78 @@ using Random: MersenneTwister
     @test isdefined(MySRCore, :equation_search)
 end
 
+@testset "Size-matched crossover" begin
+    SR = MySRCore.SymbolicRegression
+    MutationFunctions = SR.MutationFunctionsModule
+    @test SR.default_crossovers() == [SR.SubtreeCrossover() => 1.0]
+    @test SR.SizeMatchedCrossover(; size_tolerance=0).size_tolerance == 0.0
+    @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=-0.1)
+    @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=NaN)
+    @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=Inf)
+
+    options = SR.Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin,),
+        default_plugins=(),
+    )
+    parent1 = SR.parse_expression(
+        "x1 + x2";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=SR.Node{Float64,2},
+    )
+    parent2 = SR.parse_expression(
+        "sin(x1 + x2)";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=SR.Node{Float64,2},
+    )
+    @test_throws ArgumentError MutationFunctions.size_matched_crossover_trees(
+        parent1, parent2, -0.1, MersenneTwister(1)
+    )
+    @test MutationFunctions._select_size_matched_index(
+        [1, 2, 3], 2, 0.0, MersenneTwister(1)
+    ) == 2
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        Int[], 1, 0.0, MersenneTwister(1)
+    )
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        [1], 0, 0.0, MersenneTwister(1)
+    )
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        [1], 1, -0.1, MersenneTwister(1)
+    )
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        [1], 1, NaN, MersenneTwister(1)
+    )
+    for seed in 1:12
+        @test MutationFunctions._select_size_matched_index(
+            [1, 2, 4], 3, 0.0, MersenneTwister(seed)
+        ) in (2, 3)
+    end
+    before1, before2 = SR.string_tree(parent1), SR.string_tree(parent2)
+    for seed in 1:12
+        child1, child2 = MutationFunctions.size_matched_crossover_trees(
+            parent1, parent2, 0.0, MersenneTwister(seed)
+        )
+        parent_node_ids = Set(objectid(node) for node in SR.get_tree(parent1))
+        parent_node_ids = union(
+            parent_node_ids, Set(objectid(node) for node in SR.get_tree(parent2))
+        )
+        child_node_ids = Set(objectid(node) for node in SR.get_tree(child1))
+        child2_node_ids = Set(objectid(node) for node in SR.get_tree(child2))
+        child_node_ids = union(child_node_ids, child2_node_ids)
+        @test SR.count_nodes(SR.get_tree(child1)) == SR.count_nodes(SR.get_tree(parent1))
+        @test SR.count_nodes(SR.get_tree(child2)) == SR.count_nodes(SR.get_tree(parent2))
+        @test isempty(intersect(parent_node_ids, child_node_ids))
+        @test isempty(intersect(
+            Set(objectid(node) for node in SR.get_tree(child1)), child2_node_ids
+        ))
+        @test SR.string_tree(parent1) == before1
+        @test SR.string_tree(parent2) == before2
+    end
+end
+
 @testset "Dimension-aware mutation affinity" begin
     MutationFunctions = MySRCore.SymbolicRegression.MutationFunctionsModule
     X = Float64[1 2 3; 1 2 3]
@@ -837,6 +909,16 @@ end
     @test MySRCore.SymbolicRegression.DimensionalAnalysisModule.is_dimensional_scale_wrapper(
         get_tree(crossover_result.child2), options
     )
+    matched_result = MySRCore.SymbolicRegression.crossover(
+        member1, member2, SizeMatchedCrossover(; size_tolerance=0.0), options;
+        trace=nothing
+    )
+    @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
+        matched_result.child1, options
+    ) == 2.5
+    @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
+        matched_result.child2, options
+    ) == 4.0
 
     mutated, accepted, _ = MySRCore.SymbolicRegression.MutateModule.next_generation(
         dataset,
@@ -1054,6 +1136,7 @@ end
 end
 
 @testset "TemplateExpression get_tree preserves declared feature arity" begin
+    MutationFunctions = MySRCore.SymbolicRegression.MutationFunctionsModule
     options = Options(
         binary_operators=(+, -, *, /),
         unary_operators=(),
@@ -1126,4 +1209,7 @@ end
     @test multi_tree.degree == 2
     @test get_child(multi_tree, 1).feature == 1
     @test get_child(multi_tree, 2).feature == 3
+    @test_throws ArgumentError MutationFunctions.size_matched_crossover_trees(
+        fixed_template, multi_template, -0.1, MersenneTwister(3)
+    )
 end

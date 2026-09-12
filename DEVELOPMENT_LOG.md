@@ -189,3 +189,89 @@
   `feature/mutation-affinity-smoke-fix-20260912`，本轮前备份为
   `backup/smoke-before-fix-20260912`；原始 MySR/MySRCore checkout 未修改，
   未执行远程操作。
+
+## 2026-09-05 - 建立 crossover 优化隔离 worktree
+
+- 变更类型：算法研究后的隔离实现。
+- 影响范围：`src/Crossovers.jl`、`src/Core.jl`、`src/SymbolicRegression.jl`、`src/Crossover.jl`、`src/MutationFunctions.jl`、`test/runtests.jl`、`CROSSOVER_OPTIMIZATION_PLAN.md`。
+- Decision：新增显式 `SizeMatchedCrossover(; size_tolerance=0.25)`；第一棵树沿用均匀节点采样，第二棵树一次 bottom-up 收集子树节点数，优先匹配相对容差内的候选，无候选时选择最近尺寸。默认 `SubtreeCrossover() => 1.0` 保持不变。
+- Confirmed：普通 `Expression` 使用新匹配逻辑；TemplateExpression、共享图节点及其他自定义包装回退既有 `crossover_trees`，保留原有上下文和共享语义；节点复制避免新增 aliasing；量纲包装和外层约束检查未绕过。
+- 验证：env_mysr 的 Julia 1.10.3 环境核验通过；focused crossover test 52/52 通过；完整 `test/runtests.jl` 已通过当前测试集；`git diff --check` 通过。
+- Unknown：相对节点数匹配是否改善 HOF、测试误差、树膨胀或 wall-clock 尚未 benchmark；本 worktree 不合并回原 checkout。
+
+## 2026-09-05 - crossover 代码质量与资源使用优化
+
+- 变更类型：内部实现重构与候选选择优化。
+- Decision：`SizeMatchedCrossover` 在单次 donor 遍历中完成容差候选和最近尺寸的 reservoir selection，移除 `distances`/`findall` 中间数组；公共 helper 对非法 tolerance 统一快速失败。
+- Decision：抽取 `_crossover_with_tree_operator`，统一普通 crossover 与 size-matched crossover 的 dimensional-scale 解包、恢复和 trace 路径。
+- Confirmed：默认 `SubtreeCrossover` 行为和外层约束接口保持不变，未新增依赖或额外 loss evaluation。
+- 验证：重新运行当前完整 Julia 测试文件，所有测试集通过；`git diff --check` 通过。
+- Unknown：分配次数和 wall-clock 的实际下降尚未用 profiler 量化；需要后续匹配 benchmark 才能确认资源收益。
+
+## 2026-09-05 - 验证计数修正
+
+- **Confirmed**：新增公共 helper 非法 tolerance 回归断言后，Size-matched crossover focused test 当前为 **53/53**；完整当前 Julia 测试文件仍全部通过。
+
+## 2026-09-12 - 同步本地 MySRCore/MySR 代码到 crossover worktree
+
+- 变更类型：跨仓库本地代码同步与冲突调和。
+- **Confirmed**：canonical MySRCore `b92776a` 合并到 `feature/crossover-local-sync-20260912`，合并提交为 `08773e9`；保留 SizeMatchedCrossover、mutation-affinity、1.1.3、量纲和模板修复。
+- **Confirmed**：唯一合并冲突是 `DEVELOPMENT_LOG.md` 的 add/add，已保留两边日志；源码文件无未解决冲突标记。
+- **Confirmed**：配套 MySR worktree `/home/taomingyu/MySR_Dev/worktrees/crossover-optimization-python` 基于 canonical `a7c787b`，其 `juliapkg.json` 保持 1.1.3 发布配置；桥接测试使用临时 dev 配置指向本地 backend worktree。
+- **验证**：MySRCore `Pkg.test()` 全部通过；MySR 前端量纲/RNN 聚焦测试 `62 passed`，仅有既有线程配置和 sklearn 收敛警告；两个 worktree `git diff --check` 通过。
+- **Backup**：canonical MySRCore 和 MySR 均建立 `backup/local-sync-before-crossover-merge-20260912`；crossover worktree 建立 `backup/crossover-before-local-sync-20260912`。
+- **Unknown**：未运行大规模搜索或 benchmark；原始 checkout 的未跟踪 `AGENTS.md`/`outputs/` 保持不动。
+
+## 2026-09-12 - 修正 size-matched custom expression fallback
+
+- **Confirmed**：复核本地代码优先合并后的差异时发现，`size_matched_crossover_trees(::AbstractExpression, ...)` 的 tolerance 参数曾匿名声明却在函数体引用，TemplateExpression/custom wrapper 会触发 `UndefVarError`。
+- **Decision**：恢复具名参数并新增 TemplateExpression fallback 的非法 tolerance 回归断言；修复提交为 `5eed25a`，修复前备份为 `backup/pre-size-matched-fallback-fix-20260912`。
+- **验证**：MySRCore `Pkg.test()` 全部通过，TemplateExpression 回归为 `12/12`；未改变 canonical checkout。
+
+## 2026-09-12 - 三次基础测试第 1/2 轮
+
+- **Confirmed**：静态加载测试在使用可写临时 Julia depot 后通过；首次失败来自 `env_mysr` 只读 depot 的 precompile pidfile，而非源码。
+- **Confirmed**：完整 MySRCore `Pkg.test()` 通过，Size-matched crossover test 当前 `66/66`；未发现代码 BUG。
+- **Decision**：增加尺寸选择器的精确命中、最近尺寸 fallback 和并列候选覆盖；下一步补充公共构造器文档与 `Inf` 边界测试。
+- **Unknown**：上游 DynamicExpressions 的 `OperatorEnum` 弃用警告仍存在，未归因于本次 crossover。
+
+## 2026-09-12 - 三层基础测试完成
+
+- **Confirmed**：静态加载层在可写临时 depot 下通过；完整 MySRCore `Pkg.test()` 通过，Size-matched test `66/66`；MySR 前端本地 backend 桥接测试 `62 passed`。
+- **Confirmed**：三层测试均未发现源码 BUG；警告仅为 env depot 只读导致的首次假失败、上游 `@nospecialize`/`OperatorEnum` 弃用提示、线程配置提示和 sklearn 收敛提示。
+- **Decision**：将三层测试命令和 depot 规则写入 crossover plan；当前不再修改已通过的核心运行逻辑，后续性能工作需进入 profiler/匹配 benchmark。
+
+## 2026-09-12 - 三层测试复跑与 aliasing 质量覆盖
+
+- **Confirmed**：按三层协议复跑，静态加载通过；MySRCore `Pkg.test()` 通过，Size-matched test `79/79`；MySR 前端量纲/RNN 聚焦测试 `62 passed`。
+- **Decision**：未发现源码 BUG；为 crossover 增加父子节点 object identity 不重叠的 aliasing 回归测试，防止后续 mutation 通过共享节点修改父代。提交为当前后续提交。
+- **Unknown**：上游弃用与 sklearn 收敛警告仍未解决，未归因于本项目改动。
+
+## 2026-09-12 - 最终代码质量审查
+
+- **Confirmed**：完成静态加载、完整 MySRCore 回归和 MySR 前端桥接检查；最终 backend `Pkg.test()` 全部通过，SizeMatchedCrossover 回归 `81/81`，前端量纲/RNN 测试 `62 passed`。
+- **Decision**：为内部尺寸选择器增加空 donor 与非正 target 的显式参数校验，避免未来扩展时产生索引 0 或隐晦错误；当前提交为本次最终质量改动。
+- **Unknown**：上游弃用提示、线程配置提示和 sklearn 收敛提示仍未解决；性能收益仍需 profiler/benchmark。
+
+## 2026-09-12 - 最终提交后的前端桥接复核
+
+- **Confirmed**：在最终 backend 提交 `16ac155` 之后重新运行 MySR 前端量纲/RNN 桥接测试，结果为 `62 passed`（88.14s）。
+- **验证**：测试通过；仅保留线程配置和 sklearn 收敛警告，未发现由本次 crossover 改动引入的失败。
+
+## 2026-09-12 - 最终提交后的静态加载复核
+
+- **Confirmed**：在最终提交 `a786901`（包含 backend `16ac155`）上，用 `env_mysr` 和可写临时 depot 加环境 depot 的配置重新执行 `using MySRCore`，输出 `final-static-load-ok`。
+- **分析**：首次只使用空临时 depot 时因缺少已安装的 `Reexport` 依赖而失败；补充环境 depot 后通过，确认是测试环境配置问题而非源码问题。
+
+## 2026-09-12 - 深度 crossover 质量加固
+
+- **Confirmed**：尺寸选择器现在在内部入口也验证 finite、nonnegative tolerance，避免绕过公共构造器时接受 NaN 或负值。
+- **Confirmed**：新增负值/NaN selector 回归，以及 child1/child2 之间无节点共享的 aliasing 回归；提交为 `e354e77`，修改前备份为 `backup/pre-selector-contract-20260912`。
+- **Confirmed**：补充 `SizeMatchedCrossover` 的公开使用文档、fallback 语义和 API 文档索引；提交为 `b696f0f`，文档修改前备份为 `backup/pre-crossover-docs-quality-20260912`。
+- **验证**：MySRCore `Pkg.test()` 全部通过，Size-matched crossover `95/95`；公共 API 检查输出 `public-crossover-api-ok`；`git diff --check` 通过。
+- **Unknown**：本轮仍未测量大规模搜索性能收益；性能结论需要独立 profiler/匹配 benchmark。
+
+## 2026-09-12 - 深度质量改动后的前端桥接复核
+
+- **Confirmed**：使用当前 backend worktree（包含 `e354e77`、`b696f0f`、`8e8f8f4`）生成临时 dev juliapkg 配置并运行 MySR 量纲/RNN 聚焦测试，结果 `62 passed`（98.03s）。
+- **验证**：仅有既有 sklearn 收敛警告；未发现 selector 边界加固或文档变更造成的前端桥接回归。
