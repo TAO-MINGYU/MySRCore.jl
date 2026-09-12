@@ -275,3 +275,9 @@
 
 - **Confirmed**：使用当前 backend worktree（包含 `e354e77`、`b696f0f`、`8e8f8f4`）生成临时 dev juliapkg 配置并运行 MySR 量纲/RNN 聚焦测试，结果 `62 passed`（98.03s）。
 - **验证**：仅有既有 sklearn 收敛警告；未发现 selector 边界加固或文档变更造成的前端桥接回归。
+
+## 2026-09-12 - 本地 MySRCore 集成后桥接复核
+
+- **Confirmed**：本地 `MySRCore.jl` 集成提交为 `d210713`，其 Julia backend 完整测试通过，SizeMatchedCrossover `95/95`。
+- **Confirmed**：临时 Python bridge 配置直接指向 `/home/taomingyu/MySR_Dev/MySRCore.jl`，MySR 量纲/RNN 聚焦测试 `62 passed`（97.89s）。
+- **验证**：仅有既有 sklearn 收敛警告；本地集成目录可被 Python 前端正常加载。
