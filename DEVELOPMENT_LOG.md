@@ -262,3 +262,11 @@
 
 - **Confirmed**：在最终提交 `a786901`（包含 backend `16ac155`）上，用 `env_mysr` 和可写临时 depot 加环境 depot 的配置重新执行 `using MySRCore`，输出 `final-static-load-ok`。
 - **分析**：首次只使用空临时 depot 时因缺少已安装的 `Reexport` 依赖而失败；补充环境 depot 后通过，确认是测试环境配置问题而非源码问题。
+
+## 2026-09-12 - 深度 crossover 质量加固
+
+- **Confirmed**：尺寸选择器现在在内部入口也验证 finite、nonnegative tolerance，避免绕过公共构造器时接受 NaN 或负值。
+- **Confirmed**：新增负值/NaN selector 回归，以及 child1/child2 之间无节点共享的 aliasing 回归；提交为 `e354e77`，修改前备份为 `backup/pre-selector-contract-20260912`。
+- **Confirmed**：补充 `SizeMatchedCrossover` 的公开使用文档、fallback 语义和 API 文档索引；提交为 `b696f0f`，文档修改前备份为 `backup/pre-crossover-docs-quality-20260912`。
+- **验证**：MySRCore `Pkg.test()` 全部通过，Size-matched crossover `95/95`；公共 API 检查输出 `public-crossover-api-ok`；`git diff --check` 通过。
+- **Unknown**：本轮仍未测量大规模搜索性能收益；性能结论需要独立 profiler/匹配 benchmark。
