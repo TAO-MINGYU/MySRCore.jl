@@ -71,7 +71,8 @@ using ..DimensionalAnalysisModule:
     unwrap_dimensional_scale,
     wrap_dimensional_scale,
     rewrap_dimensional_scale,
-    dimensional_scale_coefficient
+    dimensional_scale_coefficient,
+    dimensional_scale_identity
 using ..ConstantOptimizationModule: optimize_constants
 using ..TracingModule:
     trace_identity_mutation!, trace_mutation_result!, trace_mutation_type!
@@ -377,9 +378,9 @@ function _next_generation(
     attempts = 0
     max_attempts = 10
     mutation_base = unwrap_dimensional_scale(member.tree, options)
-    dimensional_coefficient = something(
-        dimensional_scale_coefficient(member.tree, options), one(T)
-    )
+    dimensional_coefficient = dimensional_scale_coefficient(member.tree, options)
+    dimensional_coefficient === nothing &&
+        (dimensional_coefficient = dimensional_scale_identity(T))
     node_storage = allocate_container(mutation_base)
 
     mut_context = prepare_mutation_context(mutation_choice)
