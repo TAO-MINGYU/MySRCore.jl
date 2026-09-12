@@ -270,3 +270,8 @@
 - **Confirmed**：补充 `SizeMatchedCrossover` 的公开使用文档、fallback 语义和 API 文档索引；提交为 `b696f0f`，文档修改前备份为 `backup/pre-crossover-docs-quality-20260912`。
 - **验证**：MySRCore `Pkg.test()` 全部通过，Size-matched crossover `95/95`；公共 API 检查输出 `public-crossover-api-ok`；`git diff --check` 通过。
 - **Unknown**：本轮仍未测量大规模搜索性能收益；性能结论需要独立 profiler/匹配 benchmark。
+
+## 2026-09-12 - 深度质量改动后的前端桥接复核
+
+- **Confirmed**：使用当前 backend worktree（包含 `e354e77`、`b696f0f`、`8e8f8f4`）生成临时 dev juliapkg 配置并运行 MySR 量纲/RNN 聚焦测试，结果 `62 passed`（98.03s）。
+- **验证**：仅有既有 sklearn 收敛警告；未发现 selector 边界加固或文档变更造成的前端桥接回归。
