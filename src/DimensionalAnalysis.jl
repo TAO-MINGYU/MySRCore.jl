@@ -79,14 +79,28 @@ function dimensional_scale_coefficient(ex::AbstractExpression, options::Abstract
     return dimensional_scale_coefficient(get_tree(ex), options)
 end
 
+"""Return the multiplicative identity for a value type when it exists."""
+dimensional_scale_identity(::Type{T}) where {T} = applicable(one, T) ? one(T) : nothing
+
 function wrap_dimensional_scale(
     tree::AbstractExpressionNode{T}, options::AbstractOptions;
-    coefficient::T=one(T),
+    coefficient=nothing,
 ) where {T}
     dimension_policy(options) === :compatible || return tree
     is_dimensional_scale_wrapper(tree, options) && return tree
+    # TypeSpec searches may use non-numeric value types (for example strings).
+    # A semi-theoretical scale is meaningful only when the value type supports
+    # a multiplicative identity; leave such trees unchanged instead of raising
+    # an opaque `one(::Type{T})` MethodError during population initialization.
+    coefficient_value = if coefficient === nothing
+        identity = dimensional_scale_identity(T)
+        identity === nothing && return tree
+        identity
+    else
+        convert(T, coefficient)
+    end
     mult_idx = dimensional_scale_operator_index(options)
-    coefficient_node = constructorof(typeof(tree))(; val=coefficient)
+    coefficient_node = constructorof(typeof(tree))(; val=coefficient_value)
     return constructorof(typeof(tree))(;
         op=mult_idx,
         children=(coefficient_node, tree),
@@ -198,9 +212,11 @@ end
 """Infer an expression dimension using dimension-only quantity placeholders."""
 function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
     name = lowercase(string(op))
+    identity = dimensional_scale_identity(T)
+    identity === nothing && return nothing
     quantities = [DynamicQuantities.constructorof(
         Quantity{T,typeof(first(child_dimensions))}
-    )(one(T), d) for d in child_dimensions]
+    )(identity, d) for d in child_dimensions]
     zero_dimension = dimension(quantities[1] / quantities[1])
     if length(quantities) == 2
         left, right = child_dimensions

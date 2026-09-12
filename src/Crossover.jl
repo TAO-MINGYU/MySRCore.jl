@@ -20,7 +20,8 @@ using ..MutationFunctionsModule: crossover_trees, size_matched_crossover_trees
 using ..DimensionalAnalysisModule:
     unwrap_dimensional_scale,
     wrap_dimensional_scale,
-    dimensional_scale_coefficient
+    dimensional_scale_coefficient,
+    dimensional_scale_identity
 using ..MutateModule: _sample_mutation
 using ..TracingModule: trace_mutation_result!, trace_mutation_type!
 
@@ -97,8 +98,10 @@ function _crossover_with_tree_operator(
 ) where {T,L,N<:AbstractExpression,P<:AbstractPopMember{T,L,N},F<:Function}
     parent_tree1 = unwrap_dimensional_scale(member1.tree, options)
     parent_tree2 = unwrap_dimensional_scale(member2.tree, options)
-    coefficient1 = something(dimensional_scale_coefficient(member1.tree, options), one(T))
-    coefficient2 = something(dimensional_scale_coefficient(member2.tree, options), one(T))
+    coefficient1 = dimensional_scale_coefficient(member1.tree, options)
+    coefficient1 === nothing && (coefficient1 = dimensional_scale_identity(T))
+    coefficient2 = dimensional_scale_coefficient(member2.tree, options)
+    coefficient2 === nothing && (coefficient2 = dimensional_scale_identity(T))
     child_tree1, child_tree2 = tree_operator(parent_tree1, parent_tree2)
     child_tree1 = wrap_dimensional_scale(child_tree1, options; coefficient=coefficient1)
     child_tree2 = wrap_dimensional_scale(child_tree2, options; coefficient=coefficient2)
