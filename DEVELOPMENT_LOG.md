@@ -115,3 +115,77 @@
   记录该版本元数据同步点；等待与前端 MySR 1.1.3 配套发布。
 - **Decision**：后端不再引入本次提交外的功能变更，默认行为沿用 `1.1.2` 已验证路径；
   后续能力差异主要通过前端参数预算与功能门控实验再度验证。
+
+## 2026-09-11 - Reconcile MySRCore 1.1.3 into isolated mutation-affinity worktree
+
+- **变更类型**：隔离 worktree 合并与冲突调和。
+- **Confirmed**：原始 MySRCore `3756a51` 的 1.1.3 元数据、`Configure.jl` worker
+  package-loading 修复、RNN-GPSR fallback/反馈语料修复已合入
+  `feature/mutation-affinity-reconcile-v1.1.3`；静态 mutation-affinity 与
+  `formula_type` 合法性门控仍保留。
+- **Decision**：采用 1.1.3 的无临时向量在线 affinity 抽样实现；保留
+  `feature_affinity` 尺寸在 mutation 遍历前校验；日志合并保留后端历史记录。
+- **影响路径**：`src/MutationAffinity.jl`、`src/MutationFunctions.jl`、
+  `src/Configure.jl`、`src/PopulationSeeding.jl`、`src/Options.jl`、
+  `src/OptionsStruct.jl`、`src/Mutate.jl`、`src/Core.jl`、`test/runtests.jl`、
+  `Project.toml`、`CHANGELOG.md`、`FORK_CHANGES.md`。
+- **Verification**：隔离 `env_mysr` + Julia 1.10.3 下直接运行 `test/runtests.jl`
+  全部通过；mutation-affinity 9/9、RNN-GPSR 与量纲回归均通过。包级 `Pkg.test()`
+  与 Python bridge 测试待本次提交后继续执行。
+- **Backup**：合并前 HEAD 已保存为
+  `backup/mutation-affinity-pre-reconcile-20260911`；原始 MySR 与 MySRCore
+  checkout 未修改。
+- **Unknown**：未执行大规模 benchmark；affinity 默认强度/探索比例的效果仍不作
+  性能声明。
+
+## 2026-09-12 - Fix strict-dimensional RandomizeMutation expression wrapping
+
+- **Confirmed**：在 1.1.3 与 mutation-affinity worktree 合并后的前端回归中，
+  `formula_type=:theoretical` 的 `RandomizeMutation` 会从量纲生成器得到裸
+  `Node`，但 `MutationResult{N,P}` 要求返回原始 `AbstractExpression` 类型，
+  因此曾触发类型错误。
+- **Decision**：变异入口现在先取得表达式的 mutation contents/context，并在量纲
+  生成成功后按同一 context 重新包装；`TemplateExpression` 等嵌套表达式沿内容
+  上下文递归包装，量纲生成失败时仍使用原有随机回退路径。量纲合法性仍由
+  `formula_type` 的候选生成/检查负责，未把量纲混入 affinity 分数。
+- **影响路径**：`src/Mutate.jl`、`test/runtests.jl`。
+- **Verification**：直接 `test/runtests.jl` 全部通过；`Pkg.test()` 全部通过；
+  MySR 前端 `test_dimensional_formula_type.py` 与 `test_rnn_gpsr_seeding.py`
+  共 `62 passed`（1 个 sklearn 收敛警告）；强制 randomize 的理论量纲小型
+  bridge smoke 通过且确认运行时源码来自本 worktree；配置/量纲轻量前端集成
+  另有 `6 passed`。
+- **Residual/Unknown**：完整的高预算 `test_dimensional_constraints` 在本次
+  bridge 启动的 300 秒上限内未完成；小型同路径 smoke 已通过。前端旧测试
+  `test_mutation_and_plugin_configuration` 仍假设顶层 `SymbolicRegression`
+  包名，而当前 MySRCore 公开边界是 `MySRCore.SymbolicRegression`，未在本
+  后端修复中改变该测试/兼容层；`test_dimension_propagation` 仍使用默认
+  `formula_type="empirical"`，与当前“formula_type 是量纲模式唯一来源”的
+  决策不一致，未将其失败解释为本次后端回归。
+- **Backup**：本修复前的 worktree HEAD 保存在
+  `backup/reconcile-before-randomize-fix-20260911`；工作分支为
+  `feature/mutation-affinity-reconcile-v1.1.3-fix`，修复提交为 `6c2049c`。
+
+## 2026-09-12 - Smoke-test fixes for dimensional and template mutation paths
+
+- **变更类型**：隔离 worktree 中的冒烟测试驱动 bug 修复。
+- **Confirmed**：半理论模式的直接 `RandomizeMutation` 现在会先暂存并解包外层
+  `C_dim`，完成内部随机化后按原系数重新包装；经验模式的
+  `dimensional_scale_coefficient(::AbstractExpression, ...)` 不再误触发
+  `get_tree`。
+- **Confirmed**：`TemplateExpression.get_tree` 不再因 `zip` 截断
+  `f(x, y)` 的变量；多 inner expression 使用声明特征数的总和；固定的常见
+  combiner 算子（如 `sin`）仅在临时 AST 视图中补齐，不改变存储的搜索算子集合。
+- **影响路径**：`src/DimensionalAnalysis.jl`、`src/Mutate.jl`、
+  `src/TemplateExpression.jl`、`test/runtests.jl`。
+- **Verification**：后端 `test/runtests.jl` 全部通过（新增模板回归 11/11，
+  `C_dim`/量纲/affinity 回归均通过）；`env_mysr` 前端量纲与 RNN 测试
+  `62 passed`（1 个 sklearn 收敛警告）；模板主流程集成测试 `1 passed`
+  （95.72 秒）；`git diff --check` 通过。
+- **Residual/Unknown**：默认 200 iterations × 62 populations 的两个
+  fresh-process 模板测试运行超过 6 分钟后按冒烟范围安全中止；任意用户自定义
+  固定 combiner 算子尚未自动发现；一个 type-spec 测试因隔离 Julia project
+  没有旧包名 `SymbolicRegression` 而失败，未归因于本次后端改动。
+- **Backup/Branch**：当前工作分支为
+  `feature/mutation-affinity-smoke-fix-20260912`，本轮前备份为
+  `backup/smoke-before-fix-20260912`；原始 MySR/MySRCore checkout 未修改，
+  未执行远程操作。
