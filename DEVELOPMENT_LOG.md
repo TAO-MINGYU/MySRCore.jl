@@ -308,3 +308,9 @@
 - **Decision**：无源码 BUG 时采用低风险质量计划，补充公共入口的类型、树大小和父代隔离断言，避免只验证内部 helper。
 - **Verification**：第三轮前端 bridge 使用临时 Julia project 指向本 worktree，量纲/RNN 测试 `62 passed`；最终 `git diff --check` 通过。
 - **Unknown**：仍未测量大规模搜索性能或 HOF 收益；既有上游弃用警告未处理。
+
+## 2026-09-12 - Full quality audit conclusion
+
+- **Confirmed**：完成分支/状态、静态加载、完整 Julia 回归、Python bridge、compileall、Ruff 和 diff-check 审查；未发现本次合并引入的 BUG。
+- **Decision**：将可验证的公共 dispatch 回归作为本轮质量提升；更大范围性能和重构列为后续独立计划，不在无 benchmark 证据时修改核心搜索逻辑。
+- **Unknown**：上游弃用提示和大规模搜索性能仍需单独处理。
