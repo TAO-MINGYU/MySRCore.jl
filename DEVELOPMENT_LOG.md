@@ -252,3 +252,8 @@
 - **Confirmed**：完成静态加载、完整 MySRCore 回归和 MySR 前端桥接检查；最终 backend `Pkg.test()` 全部通过，SizeMatchedCrossover 回归 `81/81`，前端量纲/RNN 测试 `62 passed`。
 - **Decision**：为内部尺寸选择器增加空 donor 与非正 target 的显式参数校验，避免未来扩展时产生索引 0 或隐晦错误；当前提交为本次最终质量改动。
 - **Unknown**：上游弃用提示、线程配置提示和 sklearn 收敛提示仍未解决；性能收益仍需 profiler/benchmark。
+
+## 2026-09-12 - 最终提交后的前端桥接复核
+
+- **Confirmed**：在最终 backend 提交 `16ac155` 之后重新运行 MySR 前端量纲/RNN 桥接测试，结果为 `62 passed`（88.14s）。
+- **验证**：测试通过；仅保留线程配置和 sklearn 收敛警告，未发现由本次 crossover 改动引入的失败。
