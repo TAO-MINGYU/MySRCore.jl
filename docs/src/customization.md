@@ -107,6 +107,24 @@ model = SRRegressor(
 )
 ```
 
+For a built-in alternative, `SizeMatchedCrossover(; size_tolerance=0.25)` keeps
+the receiver's random subtree choice and selects a donor subtree with a similar
+node count. It is opt-in, so enable it explicitly and keep or replace the
+default crossover according to the desired weights:
+
+```julia
+model = SRRegressor(
+    binary_operators=[+, -, *, /],
+    unary_operators=[cos],
+    crossovers=[SizeMatchedCrossover(; size_tolerance=0.25) => 1.0],
+)
+```
+
+The tolerance is relative to the receiver subtree size. If no donor falls
+within the tolerance, the nearest donor size is used. Custom expression
+wrappers retain their specialized crossover semantics and use the standard
+subtree crossover as a compatibility fallback.
+
 The engine retries the sampled crossover when the children violate constraints,
 passing a 1-based `attempt` keyword each time. A crossover that is expensive to
 run (e.g. one backed by an external model) can check `attempt` and return
@@ -115,6 +133,8 @@ copies of the parents' trees on retries instead of re-running.
 ```@docs
 crossover
 AbstractCrossover
+SizeMatchedCrossover
+default_crossovers
 CrossoverResult
 ```
 
