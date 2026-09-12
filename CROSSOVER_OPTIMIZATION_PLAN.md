@@ -3,6 +3,12 @@
 日期：2026-09-05
 状态：Decision（本 worktree 的首个实现范围）/ Proposal（后续阶段）
 
+## 本地代码同步状态（2026-09-12）
+
+- **Confirmed**：canonical MySRCore `b92776a` 已合并到本 worktree，合并提交为 `08773e9`；原有 `SizeMatchedCrossover` 提交保留。
+- **Confirmed**：配套 MySR worktree 位于 `/home/taomingyu/MySR_Dev/worktrees/crossover-optimization-python`，基于 canonical MySR `a7c787b`，版本线为 MySR/MySRCore 1.1.3。
+- **Decision**：两个原始 checkout 仅用于提供本地最新代码和建立 backup branch；后续 crossover 开发继续只在这两个配套 worktree 中进行。
+
 ## 目标
 
 降低随机 subtree crossover 产生极端大小交换的概率，并保留可与语义 crossover 公平比较的基线。当前实现只在本 worktree 中进行，不自动合并回原始 checkout。

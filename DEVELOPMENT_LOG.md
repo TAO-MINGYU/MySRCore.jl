@@ -211,3 +211,13 @@
 ## 2026-09-05 - 验证计数修正
 
 - **Confirmed**：新增公共 helper 非法 tolerance 回归断言后，Size-matched crossover focused test 当前为 **53/53**；完整当前 Julia 测试文件仍全部通过。
+
+## 2026-09-12 - 同步本地 MySRCore/MySR 代码到 crossover worktree
+
+- 变更类型：跨仓库本地代码同步与冲突调和。
+- **Confirmed**：canonical MySRCore `b92776a` 合并到 `feature/crossover-local-sync-20260912`，合并提交为 `08773e9`；保留 SizeMatchedCrossover、mutation-affinity、1.1.3、量纲和模板修复。
+- **Confirmed**：唯一合并冲突是 `DEVELOPMENT_LOG.md` 的 add/add，已保留两边日志；源码文件无未解决冲突标记。
+- **Confirmed**：配套 MySR worktree `/home/taomingyu/MySR_Dev/worktrees/crossover-optimization-python` 基于 canonical `a7c787b`，其 `juliapkg.json` 保持 1.1.3 发布配置；桥接测试使用临时 dev 配置指向本地 backend worktree。
+- **验证**：MySRCore `Pkg.test()` 全部通过；MySR 前端量纲/RNN 聚焦测试 `62 passed`，仅有既有线程配置和 sklearn 收敛警告；两个 worktree `git diff --check` 通过。
+- **Backup**：canonical MySRCore 和 MySR 均建立 `backup/local-sync-before-crossover-merge-20260912`；crossover worktree 建立 `backup/crossover-before-local-sync-20260912`。
+- **Unknown**：未运行大规模搜索或 benchmark；原始 checkout 的未跟踪 `AGENTS.md`/`outputs/` 保持不动。
