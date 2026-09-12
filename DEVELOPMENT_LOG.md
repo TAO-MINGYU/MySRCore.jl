@@ -257,3 +257,8 @@
 
 - **Confirmed**：在最终 backend 提交 `16ac155` 之后重新运行 MySR 前端量纲/RNN 桥接测试，结果为 `62 passed`（88.14s）。
 - **验证**：测试通过；仅保留线程配置和 sklearn 收敛警告，未发现由本次 crossover 改动引入的失败。
+
+## 2026-09-12 - 最终提交后的静态加载复核
+
+- **Confirmed**：在最终提交 `a786901`（包含 backend `16ac155`）上，用 `env_mysr` 和可写临时 depot 加环境 depot 的配置重新执行 `using MySRCore`，输出 `final-static-load-ok`。
+- **分析**：首次只使用空临时 depot 时因缺少已安装的 `Reexport` 依赖而失败；补充环境 depot 后通过，确认是测试环境配置问题而非源码问题。
