@@ -18,6 +18,7 @@ end
     @test SR.SizeMatchedCrossover(; size_tolerance=0).size_tolerance == 0.0
     @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=-0.1)
     @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=NaN)
+    @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=Inf)
 
     options = SR.Options(
         binary_operators=(+, -, *, /),

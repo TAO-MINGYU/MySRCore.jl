@@ -32,7 +32,14 @@ abstract type AbstractCrossover end
 """Swap a random subtree of one parent with a random subtree of the other."""
 struct SubtreeCrossover <: AbstractCrossover end
 
-"""Swap subtrees selected to have similar node counts."""
+"""
+    SizeMatchedCrossover(; size_tolerance=0.25)
+
+Swap subtrees selected to have similar node counts. The first parent keeps the
+existing uniform node selection; the donor is sampled uniformly from nodes
+within the relative tolerance when possible, otherwise from the nearest-size
+nodes. This crossover is opt-in and is not part of `default_crossovers()`.
+"""
 struct SizeMatchedCrossover <: AbstractCrossover
     size_tolerance::Float64
 

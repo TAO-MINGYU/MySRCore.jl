@@ -55,6 +55,14 @@
 
 验收证据：现有 crossover focused tests、完整 Julia 测试文件、`git diff --check`，以及原始 checkout 的 HEAD/status 对比。性能节省仍需后续 profiling/benchmark，不在本阶段宣称。
 
+## 三层基础测试协议（2026-09-12）
+
+1. **静态/加载层**：激活 `env_mysr`，使用可写临时 depot 加载 worktree，检查导出、默认 crossover 和 `git diff --check`。
+2. **后端回归层**：在同一环境和临时 depot 中运行 `julia --project=. -e 'using Pkg; Pkg.test()'`，确认 crossover 与本地 1.1.3 mutation/量纲/RNN/template 改动共同通过。
+3. **前端桥接层**：复制配套 MySR worktree 到临时测试目录，用 dev `juliapkg.json` 指向 backend worktree，运行量纲与 RNN-GPSR 聚焦 pytest。
+
+测试环境必须把可写 depot 放在前面、env depot 放在后面；禁止将只读 depot 的 precompile pidfile 错误当成源码 BUG。三层均通过后，才进入后续 profiler 或 benchmark。
+
 ## 后续阶段（Proposal）
 
 在 size-fair 行为测试和 profiling 通过后，再依次设计：

@@ -234,3 +234,9 @@
 - **Confirmed**：完整 MySRCore `Pkg.test()` 通过，Size-matched crossover test 当前 `66/66`；未发现代码 BUG。
 - **Decision**：增加尺寸选择器的精确命中、最近尺寸 fallback 和并列候选覆盖；下一步补充公共构造器文档与 `Inf` 边界测试。
 - **Unknown**：上游 DynamicExpressions 的 `OperatorEnum` 弃用警告仍存在，未归因于本次 crossover。
+
+## 2026-09-12 - 三层基础测试完成
+
+- **Confirmed**：静态加载层在可写临时 depot 下通过；完整 MySRCore `Pkg.test()` 通过，Size-matched test `66/66`；MySR 前端本地 backend 桥接测试 `62 passed`。
+- **Confirmed**：三层测试均未发现源码 BUG；警告仅为 env depot 只读导致的首次假失败、上游 `@nospecialize`/`OperatorEnum` 弃用提示、线程配置提示和 sklearn 收敛提示。
+- **Decision**：将三层测试命令和 depot 规则写入 crossover plan；当前不再修改已通过的核心运行逻辑，后续性能工作需进入 profiler/匹配 benchmark。
