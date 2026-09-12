@@ -701,7 +701,7 @@ end
 function size_matched_crossover_trees(
     ex1::AbstractExpression,
     ex2::AbstractExpression,
-    ::Real,
+    size_tolerance::Real,
     rng::AbstractRNG=default_rng(),
 )
     _validated_size_tolerance(size_tolerance)

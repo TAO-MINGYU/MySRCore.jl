@@ -1104,6 +1104,7 @@ end
 end
 
 @testset "TemplateExpression get_tree preserves declared feature arity" begin
+    MutationFunctions = MySRCore.SymbolicRegression.MutationFunctionsModule
     options = Options(
         binary_operators=(+, -, *, /),
         unary_operators=(),
@@ -1176,4 +1177,7 @@ end
     @test multi_tree.degree == 2
     @test get_child(multi_tree, 1).feature == 1
     @test get_child(multi_tree, 2).feature == 3
+    @test_throws ArgumentError MutationFunctions.size_matched_crossover_trees(
+        fixed_template, multi_template, -0.1, MersenneTwister(3)
+    )
 end
