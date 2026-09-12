@@ -246,3 +246,9 @@
 - **Confirmed**：按三层协议复跑，静态加载通过；MySRCore `Pkg.test()` 通过，Size-matched test `79/79`；MySR 前端量纲/RNN 聚焦测试 `62 passed`。
 - **Decision**：未发现源码 BUG；为 crossover 增加父子节点 object identity 不重叠的 aliasing 回归测试，防止后续 mutation 通过共享节点修改父代。提交为当前后续提交。
 - **Unknown**：上游弃用与 sklearn 收敛警告仍未解决，未归因于本项目改动。
+
+## 2026-09-12 - 最终代码质量审查
+
+- **Confirmed**：完成静态加载、完整 MySRCore 回归和 MySR 前端桥接检查；最终 backend `Pkg.test()` 全部通过，SizeMatchedCrossover 回归 `81/81`，前端量纲/RNN 测试 `62 passed`。
+- **Decision**：为内部尺寸选择器增加空 donor 与非正 target 的显式参数校验，避免未来扩展时产生索引 0 或隐晦错误；当前提交为本次最终质量改动。
+- **Unknown**：上游弃用提示、线程配置提示和 sklearn 收敛提示仍未解决；性能收益仍需 profiler/benchmark。

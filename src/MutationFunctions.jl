@@ -768,6 +768,8 @@ end
 function _select_size_matched_index(
     donor_sizes::Vector{Int}, target_size::Int, size_tolerance::Float64, rng::AbstractRNG
 )
+    isempty(donor_sizes) && throw(ArgumentError("donor_sizes must not be empty"))
+    target_size > 0 || throw(ArgumentError("target_size must be positive"))
     eligible_count = 0
     eligible_index = 0
     nearest_distance = typemax(Int)

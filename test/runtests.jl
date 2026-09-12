@@ -43,6 +43,12 @@ end
     @test MutationFunctions._select_size_matched_index(
         [1, 2, 3], 2, 0.0, MersenneTwister(1)
     ) == 2
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        Int[], 1, 0.0, MersenneTwister(1)
+    )
+    @test_throws ArgumentError MutationFunctions._select_size_matched_index(
+        [1], 0, 0.0, MersenneTwister(1)
+    )
     for seed in 1:12
         @test MutationFunctions._select_size_matched_index(
             [1, 2, 4], 3, 0.0, MersenneTwister(seed)
