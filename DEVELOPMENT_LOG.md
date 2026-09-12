@@ -281,3 +281,10 @@
 - **Confirmed**：本地 `MySRCore.jl` 集成提交为 `d210713`，其 Julia backend 完整测试通过，SizeMatchedCrossover `95/95`。
 - **Confirmed**：临时 Python bridge 配置直接指向 `/home/taomingyu/MySR_Dev/MySRCore.jl`，MySR 量纲/RNN 聚焦测试 `62 passed`（97.89s）。
 - **验证**：仅有既有 sklearn 收敛警告；本地集成目录可被 Python 前端正常加载。
+
+## 2026-09-12 - Nonnumeric TypeSpec dimensional-scale guard
+
+- **Confirmed**：`wrap_dimensional_scale`、mutation 和 crossover 在兼容量纲策略下对非数值 TypeSpec 使用 `one(T)`，字符串/向量等类型会在初始化或演化阶段抛出 `MethodError`。
+- **Decision**：新增 `dimensional_scale_identity` 能力检查；无乘法单位元时跳过外部尺度包装，并让量纲过渡、mutation、crossover 避免 eager `one(T)` 求值。提交 `e22054f`，备份分支 `backup/pre-typespec-nonnumeric-scale-20260912`。
+- **Verification**：在 `env_mysr`、可写临时 Julia depot 加环境 depot 下运行 `Pkg.test()`，所有 MySRCore 测试集通过。
+- **Residual/Unknown**：TemplateExpression 自定义 combiner 的多特征映射仍有独立越界失败，需后续聚焦修复；本次不改变数值型半理论 C_dim 行为。
