@@ -299,3 +299,12 @@
 - **Verification**：env_mysr + Julia 1.10.3 下 `Pkg.test()` 通过；SizeMatchedCrossover
   回归 `95/95`，其余量纲、mutation-affinity、RNN-GPSR、TemplateExpression 测试全部通过。
 - **Unknown**：未运行大规模搜索或性能 benchmark；尺寸匹配对最终 HOF 的收益仍待独立实验。
+
+## 2026-09-12 - Three basic test rounds and public-dispatch quality coverage
+
+- **Confirmed**：第一轮静态加载与 Python compileall 通过；第二轮后端完整
+  `test/runtests.jl` 通过，新增公共 `crossover(...)` dispatch 回归后
+  SizeMatchedCrossover 测试为 `98/98`。
+- **Decision**：无源码 BUG 时采用低风险质量计划，补充公共入口的类型、树大小和父代隔离断言，避免只验证内部 helper。
+- **Verification**：第三轮前端 bridge 使用临时 Julia project 指向本 worktree，量纲/RNN 测试 `62 passed`；最终 `git diff --check` 通过。
+- **Unknown**：仍未测量大规模搜索性能或 HOF 收益；既有上游弃用警告未处理。
