@@ -10,6 +10,46 @@ using Random: MersenneTwister
     @test isdefined(MySRCore, :equation_search)
 end
 
+@testset "Size-matched crossover" begin
+    SR = MySRCore.SymbolicRegression
+    MutationFunctions = SR.MutationFunctionsModule
+    @test SR.default_crossovers() == [SR.SubtreeCrossover() => 1.0]
+    @test SR.SizeMatchedCrossover(; size_tolerance=0).size_tolerance == 0.0
+    @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=-0.1)
+    @test_throws ArgumentError SR.SizeMatchedCrossover(; size_tolerance=NaN)
+
+    options = SR.Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin,),
+        default_plugins=(),
+    )
+    parent1 = SR.parse_expression(
+        "x1 + x2";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=SR.Node{Float64,2},
+    )
+    parent2 = SR.parse_expression(
+        "sin(x1 + x2)";
+        operators=options.operators,
+        variable_names=["x1", "x2"],
+        node_type=SR.Node{Float64,2},
+    )
+    @test_throws ArgumentError MutationFunctions.size_matched_crossover_trees(
+        parent1, parent2, -0.1, MersenneTwister(1)
+    )
+    before1, before2 = SR.string_tree(parent1), SR.string_tree(parent2)
+    for seed in 1:12
+        child1, child2 = MutationFunctions.size_matched_crossover_trees(
+            parent1, parent2, 0.0, MersenneTwister(seed)
+        )
+        @test SR.count_nodes(SR.get_tree(child1)) == SR.count_nodes(SR.get_tree(parent1))
+        @test SR.count_nodes(SR.get_tree(child2)) == SR.count_nodes(SR.get_tree(parent2))
+        @test SR.string_tree(parent1) == before1
+        @test SR.string_tree(parent2) == before2
+    end
+end
+
 @testset "Dimension-aware mutation affinity" begin
     MutationFunctions = MySRCore.SymbolicRegression.MutationFunctionsModule
     X = Float64[1 2 3; 1 2 3]
@@ -742,6 +782,16 @@ end
     @test MySRCore.SymbolicRegression.DimensionalAnalysisModule.is_dimensional_scale_wrapper(
         get_tree(crossover_result.child2), options
     )
+    matched_result = MySRCore.SymbolicRegression.crossover(
+        member1, member2, SizeMatchedCrossover(; size_tolerance=0.0), options;
+        trace=nothing
+    )
+    @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
+        matched_result.child1, options
+    ) == 2.5
+    @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
+        matched_result.child2, options
+    ) == 4.0
 
     mutated, accepted, _ = MySRCore.SymbolicRegression.MutateModule.next_generation(
         dataset,
