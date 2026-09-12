@@ -221,3 +221,9 @@
 - **验证**：MySRCore `Pkg.test()` 全部通过；MySR 前端量纲/RNN 聚焦测试 `62 passed`，仅有既有线程配置和 sklearn 收敛警告；两个 worktree `git diff --check` 通过。
 - **Backup**：canonical MySRCore 和 MySR 均建立 `backup/local-sync-before-crossover-merge-20260912`；crossover worktree 建立 `backup/crossover-before-local-sync-20260912`。
 - **Unknown**：未运行大规模搜索或 benchmark；原始 checkout 的未跟踪 `AGENTS.md`/`outputs/` 保持不动。
+
+## 2026-09-12 - 修正 size-matched custom expression fallback
+
+- **Confirmed**：复核本地代码优先合并后的差异时发现，`size_matched_crossover_trees(::AbstractExpression, ...)` 的 tolerance 参数曾匿名声明却在函数体引用，TemplateExpression/custom wrapper 会触发 `UndefVarError`。
+- **Decision**：恢复具名参数并新增 TemplateExpression fallback 的非法 tolerance 回归断言；修复提交为 `5eed25a`，修复前备份为 `backup/pre-size-matched-fallback-fix-20260912`。
+- **验证**：MySRCore `Pkg.test()` 全部通过，TemplateExpression 回归为 `12/12`；未改变 canonical checkout。
