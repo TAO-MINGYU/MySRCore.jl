@@ -1,5 +1,34 @@
 module TemplateExpressionMacroModule
 
+using ..TemplateExpressionModule: _template_call
+
+const _TEMPLATE_CALL = GlobalRef(parentmodule(@__MODULE__).TemplateExpressionModule, :_template_call)
+
+"""Rewrite combiner calls so custom functions can participate in AST building.
+
+Calls to inner expressions (for example `f(x1)`) must remain direct calls;
+other calls are routed through `_template_call`, which keeps ordinary runtime
+evaluation unchanged and records a temporary operator when the arguments are
+`ComposableExpression`s during `get_tree`.
+"""
+function _rewrite_template_calls(expr, protected::Set{Symbol})
+    expr isa Expr || return expr
+    if expr.head == :call
+        callee = expr.args[1]
+        rewritten_args = map(arg -> _rewrite_template_calls(arg, protected), expr.args[2:end])
+        if callee isa Symbol && callee in protected
+            return Expr(:call, callee, rewritten_args...)
+        end
+        rewritten_callee = _rewrite_template_calls(callee, protected)
+        return Expr(:call, _TEMPLATE_CALL, rewritten_callee, rewritten_args...)
+    elseif expr.head == :function || expr.head == :->
+        # Nested function definitions are not part of a template combiner's
+        # supported DSL; preserve them rather than rewriting their bodies.
+        return expr
+    end
+    return Expr(expr.head, map(arg -> _rewrite_template_calls(arg, protected), expr.args)...)
+end
+
 """
     @template_spec(
         expressions=(f, g, ...),
@@ -114,6 +143,14 @@ function template_spec(func, args...)
     end
     func_body = func.args[2]
     func_args = func_args.args
+
+    # Keep calls to inner template expressions direct.  All other calls are
+    # routed through the AST-aware helper; this is what lets user-defined
+    # functions such as `add_vectors` work both on runtime values and on
+    # ComposableExpression placeholders used by `get_tree`.
+    protected_calls = Set{Symbol}(Symbol.(expr_names))
+    union!(protected_calls, (:D, :getindex, :setindex!))
+    func_body = _rewrite_template_calls(func_body, protected_calls)
 
     # For loading from checkpoint, or sharing across workers
     function_hash = hash((function_keys, expr_names, func_args, func_body))

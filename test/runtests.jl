@@ -1490,3 +1490,35 @@ end
         fixed_template, multi_template, -0.1, MersenneTwister(3)
     )
 end
+
+@testset "TemplateExpression records custom combiner operators" begin
+    struct CustomTemplateValue
+        data::Float64
+    end
+    add_custom(x::CustomTemplateValue, y::CustomTemplateValue) =
+        CustomTemplateValue(x.data + y.data)
+    function add_custom(x::ValidVector, y::ValidVector)
+        return ValidVector(map(add_custom, x.x, y.x), x.valid && y.valid)
+    end
+
+    operators = OperatorEnum(2 => (add_custom,))
+    spec = @template_spec(expressions=(f, g), prototype=CustomTemplateValue(1.0)) do x1, x2
+        add_custom(f(x1), g(x2))
+    end
+    inner = ComposableExpression(
+        Node{CustomTemplateValue,2}(; feature=1);
+        operators,
+        variable_names=["x1", "x2"],
+    )
+    template = TemplateExpression(
+        (; f=inner, g=inner);
+        structure=spec.structure,
+        operators,
+        variable_names=["x1", "x2"],
+    )
+
+    tree = get_tree(template)
+    @test tree.degree == 2
+    @test tree.op == 1
+    @test spec.structure.num_features == (; f=1, g=1)
+end

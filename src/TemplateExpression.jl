@@ -31,6 +31,7 @@ using DynamicExpressions:
 using DynamicExpressions.InterfacesModule:
     ExpressionInterface, Interfaces, @implements, all_ei_methods_except, Arguments
 using DynamicExpressions.ExpressionModule: _copy
+using DynamicExpressions.ExpressionAlgebraModule: apply_operator
 
 using ..UtilsModule: FixKws
 using ..CoreModule:
@@ -202,6 +203,89 @@ function _with_template_operators(
     return with_metadata(ex; operators)
 end
 _with_template_operators(ex, ::Union{AbstractOperatorEnum,Nothing}) = ex
+
+"""
+    _template_call(op, args...)
+
+Call a function from a template combiner while constructing its structural AST.
+
+Template combiners are normally evaluated with `ValidVector` values. During
+`get_tree`, however, their arguments are `ComposableExpression`s. User-defined
+functions commonly provide methods for the concrete value type and
+`ValidVector`, but not for `ComposableExpression`; dispatching directly to such
+a function would make AST construction fail with a misleading `MethodError`.
+For composable arguments we therefore register the function as a temporary
+operator and let DynamicExpressions build the corresponding node. The operator
+is attached only to the temporary expressions used for AST construction; the
+search/evaluation operator vocabulary is never mutated.
+"""
+function _template_call(op, args...)
+    if !any(arg -> arg isa AbstractComposableExpression, args)
+        return op(args...)
+    end
+    try
+        return op(args...)
+    catch err
+        err isa MethodError || rethrow()
+        return _template_apply_operator(op, args...)
+    end
+end
+
+function _template_operator_enum(operators::OperatorEnum, op, degree::Integer)
+    degree >= 1 || throw(ArgumentError("Template operators must have positive arity."))
+    degree <= 2 || throw(
+        ArgumentError(
+            "Custom template operator $(op) has arity $degree, but the " *
+            "current expression node supports at most binary operators.",
+        ),
+    )
+    old_ops = operators.ops
+    n = max(length(old_ops), degree)
+    additions = ntuple(n) do d
+        current = d <= length(old_ops) ? old_ops[d] : ()
+        if d == degree && all(existing -> existing !== op, current)
+            return (current..., op)
+        end
+        return current
+    end
+    return OperatorEnum(additions)
+end
+
+function _template_operator_enum(operators::GenericOperatorEnum, op, degree::Integer)
+    degree >= 1 || throw(ArgumentError("Template operators must have positive arity."))
+    degree <= 2 || throw(
+        ArgumentError(
+            "Custom template operator $(op) has arity $degree, but the " *
+            "current expression node supports at most binary operators.",
+        ),
+    )
+    old_ops = operators.ops
+    n = max(length(old_ops), degree)
+    additions = ntuple(n) do d
+        current = d <= length(old_ops) ? old_ops[d] : ()
+        if d == degree && all(existing -> existing !== op, current)
+            return (current..., op)
+        end
+        return current
+    end
+    return GenericOperatorEnum(additions)
+end
+
+function _template_apply_operator(op, args...)
+    expr_idx = findfirst(arg -> arg isa AbstractComposableExpression, args)
+    expr_idx === nothing && return op(args...)
+    example = args[expr_idx]::AbstractComposableExpression
+    degree = length(args)
+    operators = get_operators(example)
+    template_operators = _template_operator_enum(operators, op, degree)
+    ast_args = map(args) do arg
+        if arg isa AbstractComposableExpression
+            return _with_template_operators(arg, template_operators)
+        end
+        return arg
+    end
+    return apply_operator(op, ast_args...)
+end
 
 function TemplateStructure{K}(
     combine::E,
@@ -1243,6 +1327,36 @@ function CC.check_constraints(
     return true
     # TODO: The concept of `cursize` doesn't really make sense here.
 end
+
+"""Check a template before materializing its combined AST.
+
+Inner trees use feature indices local to each declared template input.  A
+candidate with an out-of-range local feature is invalid and must be rejected
+before `get_tree` substitutes composable arguments; otherwise the generic
+expression checker would expose an opaque tuple `BoundsError`.
+"""
+function CC.check_constraints(
+    ex::TemplateExpression,
+    dataset,
+    options::AbstractOptions,
+    maxsize::Int,
+    cached_size::Union{Int,Nothing}=nothing;
+    scope::Symbol=:full,
+)
+    has_invalid_variables(ex) && return false
+    CC.check_constraints(ex, options, maxsize, cached_size) || return false
+    try
+        return CC.check_constraints(get_tree(ex), dataset, options, maxsize, cached_size; scope)
+    catch err
+        # A candidate can be edited between the local feature check and AST
+        # materialization (for example while a population mutation is being
+        # assembled).  Treat only this structural arity failure as an invalid
+        # candidate; custom combiner dispatch errors must remain visible.
+        err isa BoundsError && return false
+        rethrow()
+    end
+end
+
 function has_invalid_variables(ex::TemplateExpression)
     raw_contents = get_contents(ex)
     num_features = get_metadata(ex).structure.num_features
