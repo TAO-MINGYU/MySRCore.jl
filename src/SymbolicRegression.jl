@@ -5,6 +5,7 @@ export Population,
     PopMember,
     HallOfFame,
     Options,
+    IslandProfile,
     OperatorEnum,
     Dataset,
     MutationWeights,
@@ -27,6 +28,7 @@ export Population,
     AbstractCrossover,
     SubtreeCrossover,
     SizeMatchedCrossover,
+    ProfiledOptions,
     AdaptiveParsimonyPlugin,
     AdaptiveMutationWeightsPlugin,
     MutationBurstPlugin,
@@ -53,6 +55,7 @@ export Population,
 
     #Functions:
     equation_search,
+    profiled_options,
     s_r_cycle,
     calculate_pareto_frontier,
     count_nodes,
@@ -290,6 +293,8 @@ using .CoreModule:
     SubDataset,
     AbstractOptions,
     Options,
+    IslandProfile,
+    ProfiledOptions,
     ComplexityMapping,
     dimension_policy,
     WarmStartIncompatibleError,
@@ -371,6 +376,8 @@ using .CoreModule:
     mutation_acceptance_multiplier,
     MutationAcceptanceContext,
     fork_plugin_state,
+    profiled_options,
+    profile_for_population,
     refresh_worker_plugin_state,
     MutationStepResult,
     wrap_mutation_step,
@@ -424,7 +431,7 @@ using .PopulationSeedingModule:
 using .ProgressBarsModule: WrappedProgressBar
 using .TracingModule:
     initialize_trace!, new_trace, next_trace_iteration, trace_iteration_start!, write_trace
-using .MigrationModule: migrate!
+using .MigrationModule: migrate!, migration_candidates
 using .SearchUtilsModule:
     AbstractSearchState,
     SearchState,
@@ -976,6 +983,7 @@ function _initialize_search!(
             _seed_pool = rnn_gpsr_seed_pools[j]
             _seed_evals = i == 1 ? rnn_gpsr_seed_evals[j] : 0.0
             _population_index = i
+            _population_options = profiled_options(options, _population_index)
             if saved_pop !== nothing && length(saved_pop.members) == options.population_size
                 _saved_pop = strip_metadata(saved_pop, options, _dataset)
                 ## Update losses:
@@ -1008,15 +1016,15 @@ function _initialize_search!(
                             _dataset;
                             population_size=options.population_size,
                             nlength=3,
-                            options=options,
-                            nfeatures=max_features(_dataset, options),
+                            options=_population_options,
+                            nfeatures=max_features(_dataset, _population_options),
                             plugin_states=_plugin_states,
                         )
                         inject_initial_seeds!(
                             initial_population,
                             _user_seed_members,
                             _seed_pool,
-                            options;
+                            _population_options;
                             population_index=_population_index,
                         )
                         (
@@ -1240,11 +1248,21 @@ function _main_search_loop!(
             ###################################################################
             # Migration #######################################################
             if options.migration
-                best_of_each = Population([
-                    member for pop in state.best_sub_pops[j] for member in pop.members
-                ])
+                migration_topology = hasproperty(options, :migration_topology) ?
+                    options.migration_topology : :pooled
+                migration_policy = hasproperty(options, :migration_policy) ?
+                    options.migration_policy : :best_only
+                destination_profile = profile_for_population(options, i)
+                candidates = migration_candidates(
+                    state.best_sub_pops[j], i, migration_topology;
+                    policy=migration_policy,
+                    destination_pop=cur_pop,
+                    profile=destination_profile,
+                )
                 migrate!(
-                    best_of_each.members => cur_pop, options; frac=options.fraction_replaced
+                    candidates => cur_pop,
+                    options;
+                    frac=options.fraction_replaced,
                 )
             end
             if options.hof_migration && length(dominating) > 0
@@ -1446,8 +1464,9 @@ end
     plugin_states::Tuple,
     initial_num_evals::Float64=0.0,
 ) where {T,L,N}
-    trace = new_trace(options)
-    trace_iteration_start!(trace, out, pop, iteration, in_pop, options)
+    population_options = profiled_options(options, pop)
+    trace = new_trace(population_options)
+    trace_iteration_start!(trace, out, pop, iteration, in_pop, population_options)
     num_evals = initial_num_evals
     out_pop, best_seen, evals_from_cycle = s_r_cycle(
         dataset,
@@ -1455,19 +1474,21 @@ end
         options.ncycles_per_iteration,
         cur_maxsize;
         verbosity=verbosity,
-        options=options,
+        options=population_options,
         trace=trace,
         plugin_states,
     )
     num_evals += evals_from_cycle
     out_pop, evals_from_optimize = optimize_and_simplify_population(
-        dataset, out_pop, options, cur_maxsize, trace
+        dataset, out_pop, population_options, cur_maxsize, trace
     )
     num_evals += evals_from_optimize
     if use_batching(options, dataset)
         for i_member in 1:(options.maxsize)
             if best_seen.exists[i_member]
-                cost, result_loss = eval_cost(dataset, best_seen.members[i_member], options)
+                cost, result_loss = eval_cost(
+                    dataset, best_seen.members[i_member], population_options
+                )
                 best_seen.members[i_member].cost = cost
                 best_seen.members[i_member].loss = result_loss
                 num_evals += 1
