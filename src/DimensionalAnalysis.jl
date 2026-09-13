@@ -8,7 +8,7 @@ using DynamicExpressions:
     get_tree,
     get_child,
     with_contents
-using DynamicQuantities: Quantity, DimensionError, AbstractQuantity
+using DynamicQuantities: Quantity, DimensionError, AbstractQuantity, Dimensions
 
 using ..CoreModule: AbstractOptions, Dataset, dimension_policy
 import DynamicQuantities: dimension, ustrip
@@ -219,7 +219,7 @@ function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
     # every node during generation-time constraint checks.  Unknown/custom
     # operators still use the Quantity fallback below so their existing
     # semantics are unchanged.
-    zero_dimension = dimension(1)
+    zero_dimension = Dimensions{Float64}()
     if length(child_dimensions) == 2
         left, right = child_dimensions
         if name in ("+", "-", "plus", "sub", "mod")
@@ -248,9 +248,13 @@ function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
             return child == zero_dimension ? zero_dimension : nothing
         end
     end
+    normalized_dimensions = [
+        iszero(d) ? Dimensions{Float64}() : d for d in child_dimensions
+    ]
+    dimension_type = typeof(first(normalized_dimensions))
     quantities = [DynamicQuantities.constructorof(
-        Quantity{T,typeof(first(child_dimensions))}
-    )(identity, d) for d in child_dimensions]
+        Quantity{T,dimension_type}
+    )(identity, d) for d in normalized_dimensions]
     try
         result = length(quantities) == 1 ? op(quantities[1]) : op(quantities...)
         return result isa AbstractQuantity ? dimension(result) : zero_dimension
@@ -262,7 +266,7 @@ end
 
 function _infer_dimension_static(tree::AbstractExpressionNode, input_dimensions, options::AbstractOptions, ::Type{T}) where {T}
     if tree.degree == 0
-        return tree.constant ? dimension(input_dimensions[1] / input_dimensions[1]) :
+        return tree.constant ? Dimensions{Float64}() :
             (1 <= tree.feature <= length(input_dimensions) ? input_dimensions[tree.feature] : nothing)
     end
     children = [get_child(tree, i) for i in 1:tree.degree]

@@ -21,7 +21,11 @@ length, mass, time, current, temperature, luminosity, amount, or a mapping with
 those names. Unit strings are intentionally rejected.
 """
 function _dimension_from_spec(spec::AbstractDimensions)
-    return spec
+    # DynamicQuantities may represent a zero dimension as `NoDims{FRInt32}`
+    # while nonzero user-provided dimensions use `Dimensions{Float64}`.  Keep
+    # the public boundary homogeneous so custom operators can combine
+    # dimensionless and dimensional quantities without a promotion failure.
+    return iszero(spec) ? Dimensions{Float64}() : spec
 end
 function _dimension_from_spec(spec::AbstractQuantity)
     return dimension(spec)
@@ -34,17 +38,17 @@ function _dimension_from_spec(spec::AbstractDict)
         name -> get(spec, name, get(spec, Symbol(name), 0.0)),
         7,
     )
-    return Dimensions(values...)
+    return Dimensions((Float64(value) for value in values)...)
 end
 function _dimension_from_spec(spec::AbstractVector)
     length(spec) == 7 ||
         throw(ArgumentError("dimension vectors must contain exactly 7 exponents"))
-    return Dimensions(spec...)
+    return Dimensions((Float64(value) for value in spec)...)
 end
 function _dimension_from_spec(spec::Tuple)
     length(spec) == 7 ||
         throw(ArgumentError("dimension vectors must contain exactly 7 exponents"))
-    return Dimensions(spec...)
+    return Dimensions((Float64(value) for value in spec)...)
 end
 function _dimension_from_spec(spec)
     throw(ArgumentError("dimension specifications must be mappings, 7-element vectors, or AbstractDimensions"))
