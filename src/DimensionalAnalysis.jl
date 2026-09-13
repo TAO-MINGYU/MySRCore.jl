@@ -229,19 +229,17 @@ function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
         elseif name in ("/", "÷")
             return left / right
         elseif name in ("^", "pow", "safe_pow")
+            # Only integer exponents are safe to apply directly to dimensions.
+            # Other exponents continue through the Quantity fallback below.
             child = nodes[2]
-            child.constant || return nothing
-            child_dimensions[2] == zero_dimension || return nothing
-            return left ^ child.val
+            if child.constant && child_dimensions[2] == zero_dimension && child.val isa Integer
+                return left ^ child.val
+            end
         end
     elseif length(child_dimensions) == 1
         child = child_dimensions[1]
         if name in ("neg", "-", "abs", "relu", "round", "floor", "ceil")
             return child
-        elseif name in ("sqrt", "safe_sqrt")
-            return child ^ (1 // 2)
-        elseif name == "cbrt"
-            return child ^ (1 // 3)
         elseif name == "inv"
             return inv(child)
         elseif name in ("sin", "cos", "tan", "sinh", "cosh", "tanh", "asin", "acos", "atan", "exp", "log")

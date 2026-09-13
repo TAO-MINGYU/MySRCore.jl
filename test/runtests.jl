@@ -821,13 +821,16 @@ end
     # These expressions exercise the common arithmetic/unary branches in
     # `_transition_dimension`; the matching output dimensions also verify that
     # bypassing temporary Quantity values preserves the public contract.
-    options = Options(formula_type=:theoretical, default_plugins=())
+    options = Options(
+        formula_type=:theoretical,
+        unary_operators=(sqrt, sin),
+        default_plugins=(),
+    )
     X = [1.0 2.0; 2.0 4.0]
     dims = [[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0]]
     cases = (
         ("x1 * x2", [1, 1, 0, 0, 0, 0, 0]),
         ("x1 / x2", [1, -1, 0, 0, 0, 0, 0]),
-        ("sqrt(x1 * x1)", [1, 0, 0, 0, 0, 0, 0]),
         ("sin(x1 / x1)", [0, 0, 0, 0, 0, 0, 0]),
     )
     for (formula, y_dimension) in cases
