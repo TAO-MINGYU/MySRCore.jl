@@ -325,3 +325,15 @@
 - **Verification**：canonical `Pkg.test()` 全部通过，SizeMatchedCrossover `98/98`；Python
   bridge 量纲/RNN `62 passed`。
 - **Unknown**：未用 profiler 量化总体吞吐或分配下降；其他模块仍需按相同基线逐项优化。
+
+## 2026-09-13 - Linear-time Hall of Fame frontier scan
+
+- **Decision**：保持 HallOfFame 的按复杂度最低 loss 和 `copy(member)` 防护语义，
+  将 `calculate_pareto_frontier` 的逐复杂度嵌套比较改为 running minimum 单次扫描。
+- **Confirmed**：对有限值、`Inf`、`-Inf` 和 `NaN`，新 predicate 与原
+  `member.loss >= simpler.loss` 逐项比较等价；新增非有限 loss 回归测试。实现提交
+  `a1bc0ff`，独立 worktree 分支为 `feature/hof-frontier-linear-20260913`，备份分支为
+  `backup/pre-hof-frontier-linear-20260913`。
+- **Verification**：完整 `test/runtests.jl` 全部通过（SizeMatchedCrossover `98/98`）；
+  合成 `maxsize=5000` 微基准中 frontier 扫描耗时约降低 8.8 倍。该微基准不代表总体搜索
+  吞吐，真实收益仍受成员拷贝和日志频率影响。
