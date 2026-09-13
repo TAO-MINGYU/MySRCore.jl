@@ -232,7 +232,9 @@ function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
             # Only integer exponents are safe to apply directly to dimensions.
             # Other exponents continue through the Quantity fallback below.
             child = nodes[2]
-            if child.constant && child_dimensions[2] == zero_dimension && child.val isa Integer
+            child.constant || return nothing
+            child_dimensions[2] == zero_dimension || return nothing
+            if child.val isa Integer
                 return left ^ child.val
             end
         end

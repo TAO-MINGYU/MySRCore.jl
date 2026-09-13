@@ -321,3 +321,10 @@
   reservoir sampling 替代 `mutate_operator`/`mutate_feature` 的节点列表复制与 `shuffle!`。
 - **Verification**：worktree 完整 `Pkg.test()` 通过，SizeMatchedCrossover `98/98`；提交 `6084ef8`。
 - **Unknown**：尚未用 profiler 量化总吞吐收益。
+
+## 2026-09-13 - Linear-time Hall of Fame frontier scan
+
+- **Decision**：保持 HallOfFame 的按复杂度最低 loss 和 `copy(member)` 防护语义，将 `calculate_pareto_frontier` 的嵌套比较改为 running minimum 单次扫描。
+- **Confirmed**：有限值、`Inf`、`-Inf` 和 `NaN` 比较语义保持一致；新增非有限 loss 回归。HOF 实现提交 `a1bc0ff`，稳健性补丁 `e1f2333`，合并自独立 worktree。
+- **Verification**：合成 `maxsize=5000` 微基准约 8.8 倍加速；完整测试待当前合并提交后复跑。
+- **Unknown**：真实搜索总体吞吐收益仍需 profiler/benchmark 量化。
