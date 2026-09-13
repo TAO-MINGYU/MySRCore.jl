@@ -352,3 +352,8 @@
 - **Confirmed**：迁移 fraction 现在要求 finite 且在 [0,1]，支持显式 RNG；Dataset 拒绝空样本和非法权重；TemplateStructure 拒绝非法 feature/parameter 计数，模板评估对特征行数不足给出 DimensionMismatch。
 - **Verification**：完整 `Pkg.test()` 通过，新增 Input validation guards `5/5`；既有 `@nospecialize` 编译提示仍存在但不影响测试。
 - **Unknown/Proposal**：多输入 custom combiner 的 ComposableExpression 适配、Dataset 更细的 y 校验和 novelty hash 碰撞保护仍待后续设计。
+## 2026-09-14 - Multi-input custom combiner AST support
+
+- **Confirmed**：`@template_spec` now routes non-inner combiner calls through an AST-aware `_template_call`; runtime `ValidVector` semantics remain direct, while `get_tree` records custom operators in a temporary operator vocabulary. Invalid arity produces an explicit `ArgumentError` instead of tuple `BoundsError`.
+- **Verification**：MySRCore full `Pkg.test()` passed after the dispatch guard (`b8e3d63`), including custom combiner operator test `3/3`; MySR original `test_template_custom_combiner_infers_num_features` passed.
+- **Decision**：AST fallback only handles a `MethodError` raised by the operator dispatch itself (`MethodError.f === op`), so internal user-function errors are not hidden.
