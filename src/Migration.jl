@@ -1,5 +1,6 @@
 module MigrationModule
 
+using Random: AbstractRNG, default_rng
 using ..CoreModule: AbstractOptions
 using ..PopulationModule: Population
 using ..PopMemberModule: AbstractPopMember, PopMember, reset_birth!
@@ -104,12 +105,16 @@ to do so. The original migrant population is not modified. Pass with, e.g.,
 `migrate!(migration_candidates => destination, options; frac=0.1)`
 """
 function migrate!(
-    migration::Pair{Vector{PM},P}, options::AbstractOptions; frac::AbstractFloat
+    migration::Pair{Vector{PM},P}, options::AbstractOptions;
+    frac::AbstractFloat,
+    rng::AbstractRNG=default_rng(),
 ) where {T,L,N,PM<:AbstractPopMember{T,L,N},P<:Population{T,L,N,PM}}
+    isfinite(frac) && 0 <= frac <= 1 ||
+        throw(ArgumentError("migration fraction must be finite and in [0, 1]."))
     base_pop = migration.second
     population_size = length(base_pop.members)
     mean_number_replaced = population_size * frac
-    num_replace = poisson_sample(mean_number_replaced)
+    num_replace = poisson_sample(rng, mean_number_replaced)
 
     migrant_candidates = migration.first
 
@@ -117,8 +122,8 @@ function migrate!(
     num_replace = min(num_replace, length(migrant_candidates))
     num_replace = min(num_replace, population_size)
 
-    locations = rand(1:population_size, num_replace)
-    migrants = rand(migrant_candidates, num_replace)
+    locations = rand(rng, 1:population_size, num_replace)
+    migrants = rand(rng, migrant_candidates, num_replace)
 
     for (i, migrant) in zip(locations, migrants)
         base_pop.members[i] = copy(migrant)

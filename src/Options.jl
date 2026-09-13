@@ -926,6 +926,17 @@ $(OPTION_DESCRIPTIONS)
     #! format: on
     #################################
 
+    for (name, value) in (
+        (:fraction_replaced, fraction_replaced),
+        (:fraction_replaced_hof, fraction_replaced_hof),
+        (:fraction_replaced_guesses, fraction_replaced_guesses),
+    )
+        isfinite(value) && 0 <= value <= 1 ||
+            throw(ArgumentError("`$name` must be finite and in [0, 1]."))
+    end
+    populations >= 1 || throw(ArgumentError("`populations` must be positive."))
+    population_size >= 1 || throw(ArgumentError("`population_size` must be positive."))
+
     if should_simplify === nothing
         should_simplify = (
             loss_function === nothing &&

@@ -36,7 +36,7 @@ Install the pinned release directly from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.1.0")
+Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.1.3")
 using MySRCore
 ```
 
@@ -175,7 +175,7 @@ The Python frontend can temporarily point JuliaPkg at this local checkout during
 
 ## Status
 
-MySRCore.jl 1.1.0 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
+MySRCore.jl 1.1.3 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
 
 ## License
 

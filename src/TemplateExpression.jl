@@ -239,6 +239,10 @@ function TemplateStructure{K,Kp}(
         _deprecated_num_features,
         infer_variable_constraints(Val(K), num_parameters, combine, prototype)
     )
+    all(value -> value isa Integer && value >= 0, values(num_features)) ||
+        throw(ArgumentError("TemplateStructure num_features must be non-negative integers."))
+    all(value -> value isa Integer && value > 0, values(num_parameters)) ||
+        throw(ArgumentError("TemplateStructure num_parameters must be positive integers."))
     return TemplateStructure{K,Kp,E,typeof(num_features),typeof(num_parameters)}(
         combine, num_features, num_parameters
     )
@@ -950,6 +954,15 @@ end
             if has_invalid_variables(tree)
                 return (nothing, false)
             end
+            structure_features = sum(values(metadata.structure.num_features); init=0)
+            declared_names = get_variable_names(tree)
+            expected_features = declared_names === nothing ?
+                structure_features : max(length(declared_names), structure_features)
+            size(cX, 1) >= expected_features ||
+                throw(DimensionMismatch(
+                    "TemplateExpression expects at least $expected_features feature rows, " *
+                    "received $(size(cX, 1)).",
+                ))
             extra_args = if has_params(tree)
                 (metadata.parameters,)
             else

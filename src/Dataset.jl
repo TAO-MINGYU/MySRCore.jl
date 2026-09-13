@@ -181,12 +181,20 @@ function Dataset(
 
     n = size(X, 2)
     nfeatures = size(X, 1)
+    n > 0 || throw(ArgumentError("Dataset requires at least one sample."))
     if y !== nothing && length(y) != n
         throw(
             DimensionMismatch(
                 "Number of samples in `X` (size(X, 2) = $n) does not match the length of `y` ($(length(y))). `X` should have shape (nfeatures, nsamples).",
             ),
         )
+    end
+    if weights !== nothing
+        length(weights) == n ||
+            throw(DimensionMismatch("weights must have one entry per sample."))
+        all(isfinite, weights) && all(>=(0), weights) ||
+            throw(ArgumentError("weights must be finite and non-negative."))
+        sum(weights) > 0 || throw(ArgumentError("weights must have a positive sum."))
     end
     variable_names = @something(variable_names, ["x$(i)" for i in 1:nfeatures])
     display_variable_names = @something(

@@ -5,6 +5,22 @@ using DynamicExpressions: get_child, get_metadata
 using DynamicQuantities: dimension
 using Random: MersenneTwister
 
+@testset "Input validation guards" begin
+    @test_throws ArgumentError TemplateStructure{(:f,)}(
+        x -> x;
+        num_features=(; f=-1),
+    )
+    @test_throws ArgumentError TemplateStructure{(:f,), (:p,)}(
+        ((; f), (; p), x) -> f(x) + p[1];
+        num_features=(; f=1),
+        num_parameters=(; p=0),
+    )
+    X = reshape(Float64[1, 2], 1, :)
+    @test_throws DimensionMismatch Dataset(X, [1.0, 2.0]; weights=[1.0])
+    @test_throws ArgumentError Dataset(X, [1.0, 2.0]; weights=[1.0, -1.0])
+    @test_throws ArgumentError Dataset(X, [1.0, 2.0]; weights=[0.0, 0.0])
+end
+
 @testset "MySRCore package identity" begin
     @test nameof(MySRCore) == :MySRCore
     @test isdefined(MySRCore, :Options)
