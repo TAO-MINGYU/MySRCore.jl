@@ -334,3 +334,10 @@
 - **Confirmed**：HallOfFame 与 DimensionalAnalysis 改动已合入 `feature/integrate-performance-quality-20260913`（`fa5e764`，随后移除误跟踪的本地 `AGENTS.md` 为 `a8caffa`）。
 - **Verification**：canonical `env_mysr` + 可写临时 depot 下 `Pkg.test()` 全部通过；Dimension-only fast paths `6/6`、Hall of Fame nonfinite semantics `1/1`、SizeMatchedCrossover `98/98`。
 - **Residual/Unknown**：PopulationSeeding、ConstantOptimization 仍等待 profiler/消融证据；未运行远程大规模 benchmark。
+
+## 2026-09-13 - Local-primary population migration merge
+
+- **Decision**：以 canonical MySRCore 本地分支 `feature/integrate-performance-quality-20260913` 为主线，在隔离 worktree `feature/local-primary-population-migration-merge-20260913` 合入 population profiles、ring/pooled topology 与 best-only/best-plus-novelty policy；保留本地 SizeMatchedCrossover、量纲 fast path、HOF 和 RNN-GPSR 改动。
+- **Confirmed**：合并提交 `09b316d`；新增 `IslandProfile`/`ProfiledOptions`、迁移候选解析与后端 Options 字段，未留下冲突标记。
+- **Verification**：`env_mysr` + 可写临时 Julia depot 下完整 `Pkg.test("MySRCore")` 通过；SizeMatchedCrossover `98/98`、profile `11/11`、topology/policy `7/7`、novelty `3/3`、search integration `3/3`。
+- **Unknown**：profile 偏好和新迁移策略在匹配预算下对 HOF/测试误差/吞吐的收益尚无 benchmark 证据。
