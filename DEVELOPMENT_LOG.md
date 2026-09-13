@@ -328,3 +328,9 @@
 - **Confirmed**：有限值、`Inf`、`-Inf` 和 `NaN` 比较语义保持一致；新增非有限 loss 回归。HOF 实现提交 `a1bc0ff`，稳健性补丁 `e1f2333`，合并自独立 worktree。
 - **Verification**：合成 `maxsize=5000` 微基准约 8.8 倍加速；完整测试待当前合并提交后复跑。
 - **Unknown**：真实搜索总体吞吐收益仍需 profiler/benchmark 量化。
+
+## 2026-09-13 - Focused optimization integration verification
+
+- **Confirmed**：HallOfFame 与 DimensionalAnalysis 改动已合入 `feature/integrate-performance-quality-20260913`（`fa5e764`，随后移除误跟踪的本地 `AGENTS.md` 为 `a8caffa`）。
+- **Verification**：canonical `env_mysr` + 可写临时 depot 下 `Pkg.test()` 全部通过；Dimension-only fast paths `6/6`、Hall of Fame nonfinite semantics `1/1`、SizeMatchedCrossover `98/98`。
+- **Residual/Unknown**：PopulationSeeding、ConstantOptimization 仍等待 profiler/消融证据；未运行远程大规模 benchmark。
