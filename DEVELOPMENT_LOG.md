@@ -315,13 +315,16 @@
 - **Decision**：将可验证的公共 dispatch 回归作为本轮质量提升；更大范围性能和重构列为后续独立计划，不在无 benchmark 证据时修改核心搜索逻辑。
 - **Unknown**：上游弃用提示和大规模搜索性能仍需单独处理。
 
-## 2026-09-13 - Low-risk mutation hot-path optimization
+## 2026-09-13 - Mutation candidate allocation reduction
 
-- **Decision**：保持 mutation 的合法候选筛选、静态 affinity 和等概率节点选择语义不变，
-  将 `mutate_operator` 与 `mutate_feature` 的候选节点列表复制/随机打乱改为单次遍历
-  reservoir sampling，减少热路径临时分配。
-- **Confirmed**：优化提交 `6084ef8`，已合入 canonical 集成分支提交 `d12d9d6`；合并前备份
-  为 `backup/pre-merge-performance-quality-20260913`。
-- **Verification**：canonical `Pkg.test()` 全部通过，SizeMatchedCrossover `98/98`；Python
-  bridge 量纲/RNN `62 passed`。
-- **Unknown**：未用 profiler 量化总体吞吐或分配下降；其他模块仍需按相同基线逐项优化。
+- **Decision**：在不改变候选合法性、affinity 或随机选择语义的前提下，使用单次遍历
+  reservoir sampling 替代 `mutate_operator`/`mutate_feature` 的节点列表复制与 `shuffle!`。
+- **Verification**：worktree 完整 `Pkg.test()` 通过，SizeMatchedCrossover `98/98`；提交 `6084ef8`。
+- **Unknown**：尚未用 profiler 量化总吞吐收益。
+
+## 2026-09-13 - Linear-time Hall of Fame frontier scan
+
+- **Decision**：保持 HallOfFame 的按复杂度最低 loss 和 `copy(member)` 防护语义，将 `calculate_pareto_frontier` 的嵌套比较改为 running minimum 单次扫描。
+- **Confirmed**：有限值、`Inf`、`-Inf` 和 `NaN` 比较语义保持一致；新增非有限 loss 回归。HOF 实现提交 `a1bc0ff`，稳健性补丁 `e1f2333`，合并自独立 worktree。
+- **Verification**：合成 `maxsize=5000` 微基准约 8.8 倍加速；完整测试待当前合并提交后复跑。
+- **Unknown**：真实搜索总体吞吐收益仍需 profiler/benchmark 量化。

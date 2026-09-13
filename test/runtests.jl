@@ -580,6 +580,37 @@ end
     @test hall isa HallOfFame
 end
 
+@testset "Hall of fame frontier preserves nonfinite-loss semantics" begin
+    SR = MySRCore.SymbolicRegression
+    options = SR.Options(
+        default_plugins=(),
+        binary_operators=(+,),
+        maxsize=5,
+        save_to_file=false,
+    )
+    dataset = SR.Dataset(reshape(Float64[1, 2, 3], 1, :), Float64[1, 2, 3]; variable_names=["x1"])
+    hall = SR.HallOfFame(options, dataset)
+    HOFModule = SR.HallOfFameModule
+    losses = [10.0, 5.0, NaN, Inf, -Inf]
+    for (complexity, loss) in enumerate(losses)
+        # Reuse the HOF's expression metadata so the concrete PopMember type
+        # matches the preallocated member slots.
+        tree = copy(hall.members[1].tree)
+        member = SR.PopMember(
+            tree,
+            loss,
+            loss,
+            options,
+            complexity;
+            deterministic=true,
+        )
+        hall.members[complexity] = member
+        hall.exists[complexity] = true
+    end
+    frontier = HOFModule.calculate_pareto_frontier(hall)
+    @test isequal([member.loss for member in frontier], [10.0, 5.0, NaN, -Inf])
+end
+
 @testset "Dimension generator accepts constant powers of dimensional inputs" begin
     X = reshape(Float64[1, 2, 3], 1, :)
     y = copy(vec(X) .^ 2)
@@ -815,6 +846,39 @@ end
     )
     @test_throws Exception Options(dimensional_constraint_penalty=1000)
     @test_throws Exception Options(dimensionless_constants_only=true)
+end
+
+@testset "Dimension-only operator fast paths" begin
+    # These expressions exercise the common arithmetic/unary branches in
+    # `_transition_dimension`; the matching output dimensions also verify that
+    # bypassing temporary Quantity values preserves the public contract.
+    options = Options(
+        formula_type=:theoretical,
+        unary_operators=(sqrt, sin),
+        default_plugins=(),
+    )
+    X = [1.0 2.0; 2.0 4.0]
+    dims = [[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0]]
+    cases = (
+        ("x1 * x2", [1, 1, 0, 0, 0, 0, 0]),
+        ("x1 / x2", [1, -1, 0, 0, 0, 0, 0]),
+        ("sin(x1 / x1)", [0, 0, 0, 0, 0, 0, 0]),
+    )
+    for (formula, y_dimension) in cases
+        dataset = Dataset(X, [1.0, 2.0];
+            variable_names=["x1", "x2"],
+            X_dimensions=dims,
+            y_dimensions=y_dimension,
+        )
+        tree = parse_expression(formula;
+            operators=options.operators,
+            variable_names=["x1", "x2"],
+            node_type=Node{Float64,2},
+        )
+        result = infer_dimension_static(tree, dataset, options)
+        @test result.valid
+        @test result.output_dimension == dimension(dataset.y_dimensions)
+    end
 end
 
 @testset "Semi-theoretical C_dim boundary" begin
