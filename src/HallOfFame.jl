@@ -197,7 +197,9 @@ function calculate_pareto_frontier(hallOfFame::HallOfFame{T,L,N,PM}) where {T,L,
     # later member nor prevents itself from being reported.
     sizehint!(dominating, count(hallOfFame.exists))
     have_prior_loss = false
-    prior_min_loss = zero(L)
+    # Avoid requiring an otherwise unrelated `zero(::Type{L})` method for
+    # custom real-valued loss types; the first existing member initializes it.
+    prior_min_loss = nothing
     for size in eachindex(hallOfFame.members)
         if !hallOfFame.exists[size]
             continue
