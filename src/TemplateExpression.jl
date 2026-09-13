@@ -226,7 +226,10 @@ function _template_call(op, args...)
     try
         return op(args...)
     catch err
-        err isa MethodError || rethrow()
+        # Do not reinterpret a MethodError raised *inside* a valid custom
+        # implementation as an AST-recording request.  Only dispatch failure
+        # for the operator itself is eligible for the symbolic fallback.
+        err isa MethodError && getfield(err, :f) === op || rethrow()
         return _template_apply_operator(op, args...)
     end
 end
