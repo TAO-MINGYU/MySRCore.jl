@@ -341,3 +341,9 @@
 - **Confirmed**：合并提交 `09b316d`；新增 `IslandProfile`/`ProfiledOptions`、迁移候选解析与后端 Options 字段，未留下冲突标记。
 - **Verification**：`env_mysr` + 可写临时 Julia depot 下完整 `Pkg.test("MySRCore")` 通过；SizeMatchedCrossover `98/98`、profile `11/11`、topology/policy `7/7`、novelty `3/3`、search integration `3/3`。
 - **Unknown**：profile 偏好和新迁移策略在匹配预算下对 HOF/测试误差/吞吐的收益尚无 benchmark 证据。
+
+## 2026-09-13 - DynamicExpressions constructor warning cleanup
+
+- **Decision**：将 `Options` 内部旧式 `OperatorEnum(; binary_operators=..., unary_operators=...)` 调用改为当前 pair-based 构造器，保持 operator 顺序、helper-function 和旧算子清理语义不变。
+- **Verification**：完整 `Pkg.test("MySRCore")` 通过；原 DynamicExpressions 构造器弃用提示不再出现。
+- **Residual**：编译阶段仍可能显示 DispatchDoctor/Julia 的 `@nospecialize` 参数数量提示，属于参数很多的 `Options` 包装实现，不是 DynamicExpressions 弃用 API。

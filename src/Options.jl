@@ -1080,9 +1080,9 @@ $(OPTION_DESCRIPTIONS)
         # We call here so that mapped operators, like `^`
         # are correctly overloaded, rather than overloading
         # operators like "safe_pow", etc.
-        OperatorEnum(;
-            binary_operators=binary_operators,
-            unary_operators=unary_operators,
+        OperatorEnum(
+            1 => Tuple(unary_operators),
+            2 => Tuple(binary_operators);
             define_helper_functions=true,
             empty_old_operators=true,
         )
@@ -1098,9 +1098,9 @@ $(OPTION_DESCRIPTIONS)
                 binary_operators=binary_operators, unary_operators=unary_operators
             )
         else
-            OperatorEnum(;
-                binary_operators=binary_operators,
-                unary_operators=unary_operators,
+            OperatorEnum(
+                1 => Tuple(unary_operators),
+                2 => Tuple(binary_operators);
                 define_helper_functions=define_helper_functions,
                 empty_old_operators=false,
             )
