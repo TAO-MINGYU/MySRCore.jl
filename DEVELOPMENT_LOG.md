@@ -347,3 +347,8 @@
 - **Decision**：将 `Options` 内部旧式 `OperatorEnum(; binary_operators=..., unary_operators=...)` 调用改为当前 pair-based 构造器，保持 operator 顺序、helper-function 和旧算子清理语义不变。
 - **Verification**：完整 `Pkg.test("MySRCore")` 通过；原 DynamicExpressions 构造器弃用提示不再出现。
 - **Residual**：编译阶段仍可能显示 DispatchDoctor/Julia 的 `@nospecialize` 参数数量提示，属于参数很多的 `Options` 包装实现，不是 DynamicExpressions 弃用 API。
+## 2026-09-13 - Multi-agent Julia quality audit
+
+- **Confirmed**：迁移 fraction 现在要求 finite 且在 [0,1]，支持显式 RNG；Dataset 拒绝空样本和非法权重；TemplateStructure 拒绝非法 feature/parameter 计数，模板评估对特征行数不足给出 DimensionMismatch。
+- **Verification**：完整 `Pkg.test()` 通过，新增 Input validation guards `5/5`；既有 `@nospecialize` 编译提示仍存在但不影响测试。
+- **Unknown/Proposal**：多输入 custom combiner 的 ComposableExpression 适配、Dataset 更细的 y 校验和 novelty hash 碰撞保护仍待后续设计。
