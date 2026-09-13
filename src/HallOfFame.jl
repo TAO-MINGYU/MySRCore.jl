@@ -189,26 +189,33 @@ function calculate_pareto_frontier(hallOfFame::HallOfFame{T,L,N,PM}) where {T,L,
     # TODO - remove dataset from args.
     # Dominating pareto curve - must be better than all simpler equations
     dominating = PM[]
+    # A member dominates the frontier exactly when its loss is smaller than
+    # every existing simpler member.  Keep the smallest non-NaN loss seen so
+    # far instead of rescanning all simpler complexities for every member.
+    # `NaN` deliberately follows the historical comparison semantics: it
+    # cannot satisfy `loss >= simpler_loss`, and therefore neither blocks a
+    # later member nor prevents itself from being reported.
+    sizehint!(dominating, count(hallOfFame.exists))
+    have_prior_loss = false
+    # Avoid requiring an otherwise unrelated `zero(::Type{L})` method for
+    # custom real-valued loss types; the first existing member initializes it.
+    prior_min_loss = nothing
     for size in eachindex(hallOfFame.members)
         if !hallOfFame.exists[size]
             continue
         end
         member = hallOfFame.members[size]
-        # We check if this member is better than all members which are smaller than it and
-        # also exist.
-        betterThanAllSmaller = true
-        for i in 1:(size - 1)
-            if !hallOfFame.exists[i]
-                continue
-            end
-            simpler_member = hallOfFame.members[i]
-            if member.loss >= simpler_member.loss
-                betterThanAllSmaller = false
-                break
-            end
-        end
+        member_loss = member.loss
+        member_is_nan = member_loss isa AbstractFloat && isnan(member_loss)
+        betterThanAllSmaller = member_is_nan || !have_prior_loss || member_loss < prior_min_loss
         if betterThanAllSmaller
             push!(dominating, copy(member))
+        end
+        # A NaN comparison is false in the original nested loop, so NaN losses
+        # must not enter the running minimum used by subsequent members.
+        if !member_is_nan && (!have_prior_loss || member_loss < prior_min_loss)
+            prior_min_loss = member_loss
+            have_prior_loss = true
         end
     end
     return dominating

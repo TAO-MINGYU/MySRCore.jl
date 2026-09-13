@@ -136,18 +136,29 @@ function mutate_operator(
     if !has_operators(tree)
         return tree
     end
-    nodes = [node for node in tree if node.degree != 0]
-    shuffle!(rng, nodes)
-    for node in nodes
+    selected_node = tree
+    selected_targets = Int[]
+    eligible_count = 0
+    selected_found = false
+    for node in tree
+        node.degree == 0 && continue
         scope === :full &&
             dimension_policy(options) === :compatible &&
             is_dimensional_scale_wrapper(tree, options) &&
             node === tree && continue
         targets = _mutation_operator_targets(tree, node, options; dataset, scope)
         isempty(targets) && continue
-        node.op = _sample_operator_target(rng, node.op, node.degree, targets, options)
-        return tree
+        eligible_count += 1
+        if eligible_count == 1 || rand(rng, 1:eligible_count) == 1
+            selected_node = node
+            selected_targets = targets
+            selected_found = true
+        end
     end
+    selected_found || return tree
+    selected_node.op = _sample_operator_target(
+        rng, selected_node.op, selected_node.degree, selected_targets, options
+    )
     return tree
 end
 
@@ -306,9 +317,12 @@ function mutate_feature(
             ))
     end
 
-    nodes = [node for node in tree if node.degree == 0 && !node.constant]
-    shuffle!(rng, nodes)
-    for node in nodes
+    selected_node = tree
+    selected_targets = Int[]
+    eligible_count = 0
+    selected_found = false
+    for node in tree
+        (node.degree == 0 && !node.constant) || continue
         old_feature = node.feature
         targets = Int[]
         for feature in 1:nfeatures
@@ -327,22 +341,29 @@ function mutate_feature(
             valid && push!(targets, feature)
         end
         isempty(targets) && continue
-        weights = if options === nothing ||
-            options.mutation_affinity === :none ||
-            options.feature_affinity === nothing
-            ones(Float64, length(targets))
-        else
-            matrix = options.feature_affinity
-            Float64[matrix[old_feature, target] for target in targets]
+        eligible_count += 1
+        if eligible_count == 1 || rand(rng, 1:eligible_count) == 1
+            selected_node = node
+            selected_targets = targets
+            selected_found = true
         end
-        node.feature = sample_affinity_target(
-            rng,
-            targets,
-            weights,
-            options === nothing ? 1.0 : options.mutation_affinity_exploration,
-        )
-        return tree
     end
+    selected_found || return tree
+    old_feature = selected_node.feature
+    weights = if options === nothing ||
+        options.mutation_affinity === :none ||
+        options.feature_affinity === nothing
+        ones(Float64, length(selected_targets))
+    else
+        matrix = options.feature_affinity
+        Float64[matrix[old_feature, target] for target in selected_targets]
+    end
+    selected_node.feature = sample_affinity_target(
+        rng,
+        selected_targets,
+        weights,
+        options === nothing ? 1.0 : options.mutation_affinity_exploration,
+    )
     return tree
 end
 
