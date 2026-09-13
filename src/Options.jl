@@ -40,7 +40,7 @@ using ..MutationWeightsModule: MutationWeightsModule, MutationWeights, _mutation
 using ..MutationsModule: MutationsModule
 using ..CrossoversModule: CrossoversModule
 import ..OptionsStructModule: Options
-using ..OptionsStructModule: ComplexityMapping, operator_specialization
+using ..OptionsStructModule: ComplexityMapping, operator_specialization, IslandProfile
 using ..MutationAffinityModule: build_operator_affinity, build_feature_affinity
 using ..PluginModule:
     default_adaptive_parsimony_plugin,
@@ -415,8 +415,12 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
   destination. Must be positive.
 - `mutation_affinity_exploration`: Uniform exploration mixture in `[0, 1]`.
 - `operator_affinity`: Optional arity-to-matrix overrides for operator destination
-  weights. Matrix rows are source operators and columns are destinations.
+    weights. Matrix rows are source operators and columns are destinations.
 - `feature_affinity`: Optional square matrix for feature replacement weights.
+- `population_profiles`: Optional vector of [`IslandProfile`](@ref) values, one
+    per population. Profiles provide soft, population-specific operator,
+    mutation, and crossover preferences while retaining the global safety
+    constraints.
 - `use_frequency`: Whether to use a parsimony that adapts to the
     relative proportion of equations at each complexity; this will
     ensure that there are a balanced number of equations considered
@@ -440,6 +444,12 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `migration`: Whether to migrate equations between processes.
 - `hof_migration`: Whether to migrate equations from the hall of fame
     to processes.
+- `migration_topology`: Candidate migration topology, either `:pooled` (the
+    historical all-population pool) or `:ring` (directed predecessor-to-current
+    migration).
+- `migration_policy`: Candidate selection policy, either `:best_only` (the
+    historical best-subpopulation pool) or `:best_plus_novelty` (structural
+    duplicate filtering with a fitness-first order).
 - `fraction_replaced`: What fraction of each population to replace with
     migrated equations at the end of each cycle.
 - `fraction_replaced_hof`: What fraction to replace with hall of fame
@@ -591,6 +601,7 @@ $(OPTION_DESCRIPTIONS)
     @nospecialize(expression_spec::Union{Nothing,AbstractExpressionSpec} = nothing),
     ## 2. Setting the Search Size:
     @nospecialize(populations::Union{Nothing,Integer} = nothing),
+    @nospecialize(population_profiles=nothing),
     @nospecialize(population_size::Union{Nothing,Integer} = nothing),
     @nospecialize(ncycles_per_iteration::Union{Nothing,Integer} = nothing),
     ## 3. The Objective:
@@ -706,6 +717,8 @@ $(OPTION_DESCRIPTIONS)
     ## 8. Migration between Populations:
     migration::Bool=true,
     hof_migration::Bool=true,
+    migration_topology::Symbol=:pooled,
+    migration_policy::Symbol=:best_only,
     fraction_replaced::Union{Real,Nothing}=nothing,
     fraction_replaced_hof::Union{Real,Nothing}=nothing,
     fraction_replaced_guesses::Union{Real,Nothing}=nothing,
@@ -1101,6 +1114,25 @@ $(OPTION_DESCRIPTIONS)
     )
     _feature_affinity = build_feature_affinity(feature_affinity)
 
+    population_profiles = if population_profiles === nothing
+        nothing
+    else
+        profiles = IslandProfile[
+            profile isa IslandProfile ? profile :
+            throw(ArgumentError("`population_profiles` must contain IslandProfile values."))
+            for profile in population_profiles
+        ]
+        length(profiles) == populations ||
+            throw(ArgumentError("`population_profiles` must contain exactly one profile per population."))
+        profiles
+    end
+    migration_topology in (:pooled, :ring) ||
+        throw(ArgumentError("`migration_topology` must be `:pooled` or `:ring`."))
+    migration_policy in (:best_only, :best_plus_novelty) ||
+        throw(ArgumentError(
+            "`migration_policy` must be `:best_only` or `:best_plus_novelty`."
+        ))
+
     early_stop_condition = if typeof(early_stop_condition) <: Real
         # Need to make explicit copy here for this to work:
         stopping_point = Float64(early_stop_condition)
@@ -1306,10 +1338,13 @@ $(OPTION_DESCRIPTIONS)
         Val(bumper),
         migration,
         hof_migration,
+        migration_topology,
+        migration_policy,
         should_simplify,
         should_optimize_constants,
         _output_directory,
         populations,
+        population_profiles,
         perturbation_factor,
         batching,
         batch_size,

@@ -189,6 +189,183 @@ end
     @test after == before
 end
 
+@testset "Population-specific search profiles" begin
+    base = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin, cos),
+        populations=2,
+        default_plugins=(),
+    )
+    affinity = [ones(size(matrix)) for matrix in base.operator_affinity]
+    affinity[2][1, 2] = 7.0
+    mutation_multipliers = ones(length(base.mutations))
+    mutation_multipliers[1] = 0.0
+    profile = IslandProfile(
+        id=:algebraic,
+        role=:algebraic,
+        operator_affinity=affinity,
+        mutation_weights=mutation_multipliers,
+        crossover_weights=ones(length(base.crossovers)),
+        exploration_floor=0.35,
+    )
+    generalist = IslandProfile(id=:generalist, role=:generalist)
+    options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin, cos),
+        populations=2,
+        population_profiles=[profile, generalist],
+        default_plugins=(),
+    )
+    local_options = profiled_options(options, 1)
+    @test local_options.profile.id == :algebraic
+    @test local_options.profile.role == :algebraic
+    @test local_options.operator_affinity[2][1, 2] == 7.0
+    @test local_options.mutations[1].second == 0.0
+    @test local_options.mutation_affinity_exploration == 0.35
+    @test profiled_options(options, 2).profile.id == :generalist
+    @test profiled_options(options, 2).operator_affinity == options.operator_affinity
+
+    trigonometric = profiled_options(
+        base, IslandProfile(role=:trigonometric, operator_preference_strength=3.0)
+    )
+    algebraic = profiled_options(
+        base, IslandProfile(role=:algebraic, operator_preference_strength=3.0)
+    )
+    @test trigonometric.operator_affinity[1][1, 1] > algebraic.operator_affinity[1][1, 1]
+    no_global_affinity = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin, cos),
+        mutation_affinity=:none,
+        populations=1,
+        default_plugins=(),
+    )
+    custom_view = profiled_options(
+        no_global_affinity,
+        IslandProfile(operator_affinity=[ones(size(m)) for m in no_global_affinity.operator_affinity]),
+    )
+    @test custom_view.mutation_affinity == :family
+
+    @test_throws ArgumentError Options(
+        populations=2,
+        population_profiles=[generalist],
+        default_plugins=(),
+    )
+    @test_throws ArgumentError IslandProfile(exploration_floor=1.1)
+end
+
+@testset "Migration topology candidate pools" begin
+    Migration = MySRCore.SymbolicRegression.MigrationModule
+    best_sub_pops = [(members=[1, 2],), (members=[3, 4],), (members=[5, 6],)]
+    @test Migration.migration_candidates(best_sub_pops, 1, :ring) == [5, 6]
+    @test Migration.migration_candidates(best_sub_pops, 2, :ring) == [1, 2]
+    @test Migration.migration_candidates(best_sub_pops, 3, :ring) == [3, 4]
+    @test Migration.migration_candidates(best_sub_pops, 2, :pooled) == [1, 2, 3, 4, 5, 6]
+    @test_throws ArgumentError Migration.migration_candidates(best_sub_pops, 1, :star)
+    @test Options(migration_policy=:best_plus_novelty).migration_policy == :best_plus_novelty
+    @test_throws ArgumentError Options(migration_policy=:unknown)
+end
+
+@testset "Migration novelty and profile compatibility" begin
+    Migration = MySRCore.SymbolicRegression.MigrationModule
+    X = reshape(Float64[1, 2, 3], 1, :)
+    y = vec(X)
+    dataset = Dataset(X, y; variable_names=["x1"])
+    options = Options(
+        binary_operators=(+, -),
+        unary_operators=(),
+        populations=2,
+        default_plugins=(),
+        deterministic=true,
+    )
+    plus_tree = parse_expression(
+        "x1 + x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    minus_tree = parse_expression(
+        "x1 - x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=Node{Float64,2},
+    )
+    plus_member = PopMember(dataset, plus_tree, options; deterministic=true)
+    minus_member = PopMember(dataset, minus_tree, options; deterministic=true)
+    source = [(members=[plus_member],), (members=[minus_member],)]
+    destination = Population([plus_member])
+    # Structural novelty removes the duplicate plus tree from the destination;
+    # ring destination 1 receives only the predecessor (population 2).
+    @test Migration.migration_candidates(
+        source,
+        1,
+        :ring;
+        policy=:best_plus_novelty,
+        destination_pop=destination,
+    ) == [minus_member]
+    # A profile matrix with a zero destination column acts as an explicit
+    # migration compatibility mask for that operator.
+    compatible_plus_only = IslandProfile(
+        operator_affinity=[zeros(0, 0), Float64[1 0; 1 0]]
+    )
+    @test isempty(Migration.migration_candidates(
+        [(members=[plus_member],), (members=[minus_member],)],
+        1,
+        :ring;
+        policy=:best_plus_novelty,
+        destination_pop=destination,
+        profile=compatible_plus_only,
+    ))
+    @test_throws ArgumentError Migration.migration_candidates(
+        source, 1, :ring; policy=:unknown
+    )
+end
+
+@testset "Population profiles run through the search loop" begin
+    X = reshape(Float64[-2, -1, 0, 1, 2], 1, :)
+    y = 2 .* vec(X) .+ 1
+    base = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin, cos),
+        populations=2,
+        population_size=6,
+        tournament_selection_n=2,
+        ncycles_per_iteration=1,
+        maxsize=7,
+        default_plugins=(),
+    )
+    matrices = [ones(size(matrix)) for matrix in base.operator_affinity]
+    profile_a = IslandProfile(id=:algebraic, operator_affinity=matrices)
+    profile_b = IslandProfile(id=:trigonometric, operator_affinity=matrices)
+    options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin, cos),
+        populations=2,
+        population_size=6,
+        tournament_selection_n=2,
+        ncycles_per_iteration=1,
+        maxsize=7,
+        population_profiles=[profile_a, profile_b],
+        migration_topology=:ring,
+        migration_policy=:best_plus_novelty,
+        default_plugins=(),
+        save_to_file=false,
+        deterministic=true,
+        seed=2026,
+    )
+    hall = equation_search(
+        X,
+        y;
+        niterations=1,
+        options,
+        parallelism=:serial,
+        progress=false,
+        verbosity=0,
+    )
+    @test length(hall.members) == options.maxsize
+    @test profiled_options(options, 1).profile.id == :algebraic
+    @test profiled_options(options, 2).profile.id == :trigonometric
+end
+
 @testset "RNN-GPSR population seeding" begin
     @test !Options().rnn_gpsr_seeding
     @test_throws ArgumentError Options(rnn_gpsr_seed_fraction=1.1)

@@ -14,6 +14,7 @@ include("MutationAffinity.jl")
 include("ExpressionSpec.jl")
 include("Plugin.jl")
 include("Options.jl")
+include("PopulationMigration.jl")
 include("InterfaceDataTypes.jl")
 
 using .ProgramConstantsModule: MaybeTrace, TraceType, DATA_TYPE, LOSS_TYPE
@@ -58,6 +59,7 @@ using .CrossoversModule:
 using .OptionsStructModule:
     AbstractOptions,
     Options,
+    IslandProfile,
     ComplexityMapping,
     specialized_options,
     operator_specialization,
@@ -67,6 +69,10 @@ using .OptionsStructModule:
     dimension_policy,
     WarmStartIncompatibleError,
     check_warm_start_compatibility
+using .PopulationMigrationModule:
+    ProfiledOptions,
+    profiled_options,
+    profile_for_population
 using .OperatorsModule:
     get_safe_op,
     plus,

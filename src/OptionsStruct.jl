@@ -11,6 +11,80 @@ using ..MutationsModule: AbstractMutation
 using ..CrossoversModule: AbstractCrossover
 
 """
+    IslandProfile
+
+An immutable, population-local search profile.  Profiles deliberately override
+only soft search preferences; the global `Options` object remains the authority
+for expression types, hard constraints, loss evaluation, and population size.
+
+`role` selects a conservative built-in family preference (`:generalist`,
+`:algebraic`, `:rational`, `:trigonometric`, or `:transcendental`).  The
+`operator_preference_strength` controls the ratio between preferred and
+discouraged destinations.  `operator_affinity` contains one destination-affinity
+matrix per operator arity and is interpreted by the existing mutation sampler.
+`mutation_weights` and
+`crossover_weights` are optional vectors aligned with the corresponding global
+mutation/crossover lists.  A nonzero `exploration_floor` keeps every legal
+destination reachable even when a profile is strongly specialised.
+"""
+struct IslandProfile
+    id::Symbol
+    role::Symbol
+    operator_preference_strength::Float64
+    operator_affinity::Union{Nothing,Vector{Matrix{Float64}}}
+    mutation_weights::Union{Nothing,Vector{Float64}}
+    crossover_weights::Union{Nothing,Vector{Float64}}
+    exploration_floor::Float64
+end
+
+function IslandProfile(
+    ;
+    id::Union{Symbol,AbstractString}=:default,
+    role::Union{Symbol,AbstractString}=:generalist,
+    operator_preference_strength::Real=4.0,
+    operator_affinity=nothing,
+    mutation_weights=nothing,
+    crossover_weights=nothing,
+    exploration_floor::Real=0.2,
+)
+    affinity = if operator_affinity === nothing
+        nothing
+    else
+        matrices = Matrix{Float64}[]
+        for matrix in operator_affinity
+            matrix isa AbstractMatrix ||
+                throw(ArgumentError("Each operator affinity entry must be a matrix."))
+            push!(matrices, Matrix{Float64}(matrix))
+        end
+        matrices
+    end
+    mutation = mutation_weights === nothing ? nothing : Float64.(collect(mutation_weights))
+    crossover =
+        crossover_weights === nothing ? nothing : Float64.(collect(crossover_weights))
+    isfinite(operator_preference_strength) && operator_preference_strength > 0 ||
+        throw(ArgumentError("`operator_preference_strength` must be finite and positive."))
+    0.0 <= exploration_floor <= 1.0 ||
+        throw(ArgumentError("`exploration_floor` must be in [0, 1]."))
+    all(isfinite, something(mutation, Float64[])) ||
+        throw(ArgumentError("`mutation_weights` must contain finite values."))
+    all(>=(0), something(mutation, Float64[])) ||
+        throw(ArgumentError("`mutation_weights` must be nonnegative."))
+    all(isfinite, something(crossover, Float64[])) ||
+        throw(ArgumentError("`crossover_weights` must contain finite values."))
+    all(>=(0), something(crossover, Float64[])) ||
+        throw(ArgumentError("`crossover_weights` must be nonnegative."))
+    return IslandProfile(
+        Symbol(id),
+        Symbol(role),
+        Float64(operator_preference_strength),
+        affinity,
+        mutation,
+        crossover,
+        Float64(exploration_floor),
+    )
+end
+
+"""
 This struct defines how complexity is calculated.
 
 # Fields
@@ -216,10 +290,13 @@ struct Options{
     bumper::Val{_bumper}
     migration::Bool
     hof_migration::Bool
+    migration_topology::Symbol
+    migration_policy::Symbol
     should_simplify::Bool
     should_optimize_constants::Bool
     output_directory::Union{String,Nothing}
     populations::Int
+    population_profiles::Union{Nothing,Vector{IslandProfile}}
     perturbation_factor::Float64
     batching::B
     batch_size::BS
@@ -374,9 +451,12 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :mutation_affinity_exploration,
         :operator_affinity,
         :feature_affinity,
+        :migration_topology,
+        :migration_policy,
         :maxsize,
         :maxdepth,
         :populations,
+        :population_profiles,
         :population_size,
         :rnn_gpsr_seeding,
         :rnn_gpsr_seed_fraction,
