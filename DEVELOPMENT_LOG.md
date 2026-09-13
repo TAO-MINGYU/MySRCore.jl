@@ -314,3 +314,14 @@
 - **Confirmed**：完成分支/状态、静态加载、完整 Julia 回归、Python bridge、compileall、Ruff 和 diff-check 审查；未发现本次合并引入的 BUG。
 - **Decision**：将可验证的公共 dispatch 回归作为本轮质量提升；更大范围性能和重构列为后续独立计划，不在无 benchmark 证据时修改核心搜索逻辑。
 - **Unknown**：上游弃用提示和大规模搜索性能仍需单独处理。
+
+## 2026-09-13 - Low-risk mutation hot-path optimization
+
+- **Decision**：保持 mutation 的合法候选筛选、静态 affinity 和等概率节点选择语义不变，
+  将 `mutate_operator` 与 `mutate_feature` 的候选节点列表复制/随机打乱改为单次遍历
+  reservoir sampling，减少热路径临时分配。
+- **Confirmed**：优化提交 `6084ef8`，已合入 canonical 集成分支提交 `d12d9d6`；合并前备份
+  为 `backup/pre-merge-performance-quality-20260913`。
+- **Verification**：canonical `Pkg.test()` 全部通过，SizeMatchedCrossover `98/98`；Python
+  bridge 量纲/RNN `62 passed`。
+- **Unknown**：未用 profiler 量化总体吞吐或分配下降；其他模块仍需按相同基线逐项优化。
