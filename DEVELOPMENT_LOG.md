@@ -314,3 +314,10 @@
 - **Confirmed**：完成分支/状态、静态加载、完整 Julia 回归、Python bridge、compileall、Ruff 和 diff-check 审查；未发现本次合并引入的 BUG。
 - **Decision**：将可验证的公共 dispatch 回归作为本轮质量提升；更大范围性能和重构列为后续独立计划，不在无 benchmark 证据时修改核心搜索逻辑。
 - **Unknown**：上游弃用提示和大规模搜索性能仍需单独处理。
+
+## 2026-09-13 - Mutation candidate allocation reduction
+
+- **Decision**：在不改变候选合法性、affinity 或随机选择语义的前提下，使用单次遍历
+  reservoir sampling 替代 `mutate_operator`/`mutate_feature` 的节点列表复制与 `shuffle!`。
+- **Verification**：worktree 完整 `Pkg.test()` 通过，SizeMatchedCrossover `98/98`；提交 `6084ef8`。
+- **Unknown**：尚未用 profiler 量化总吞吐收益。
