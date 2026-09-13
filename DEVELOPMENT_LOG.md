@@ -288,3 +288,29 @@
 - **Decision**：新增 `dimensional_scale_identity` 能力检查；无乘法单位元时跳过外部尺度包装，并让量纲过渡、mutation、crossover 避免 eager `one(T)` 求值。提交 `e22054f`，备份分支 `backup/pre-typespec-nonnumeric-scale-20260912`。
 - **Verification**：在 `env_mysr`、可写临时 Julia depot 加环境 depot 下运行 `Pkg.test()`，所有 MySRCore 测试集通过。
 - **Residual/Unknown**：TemplateExpression 自定义 combiner 的多特征映射仍有独立越界失败，需后续聚焦修复；本次不改变数值型半理论 C_dim 行为。
+
+## 2026-09-12 - Merge canonical local code into crossover worktree
+
+- **Decision**：以 canonical MySRCore `main` 为代码主线合入本工作分支，保留已验证的
+  `SizeMatchedCrossover` 及其边界/aliasing 回归；采用 canonical 的量纲尺度 identity
+  处理，避免旧实现 eager `one(T)`。
+- **Confirmed**：合并提交为 `b1fdf0c`；源码无未解决冲突，除 worktree 自带 `AGENTS.md`
+  外与 canonical `main` 的差异仅为 crossover 扩展。
+- **Verification**：env_mysr + Julia 1.10.3 下 `Pkg.test()` 通过；SizeMatchedCrossover
+  回归 `95/95`，其余量纲、mutation-affinity、RNN-GPSR、TemplateExpression 测试全部通过。
+- **Unknown**：未运行大规模搜索或性能 benchmark；尺寸匹配对最终 HOF 的收益仍待独立实验。
+
+## 2026-09-12 - Three basic test rounds and public-dispatch quality coverage
+
+- **Confirmed**：第一轮静态加载与 Python compileall 通过；第二轮后端完整
+  `test/runtests.jl` 通过，新增公共 `crossover(...)` dispatch 回归后
+  SizeMatchedCrossover 测试为 `98/98`。
+- **Decision**：无源码 BUG 时采用低风险质量计划，补充公共入口的类型、树大小和父代隔离断言，避免只验证内部 helper。
+- **Verification**：第三轮前端 bridge 使用临时 Julia project 指向本 worktree，量纲/RNN 测试 `62 passed`；最终 `git diff --check` 通过。
+- **Unknown**：仍未测量大规模搜索性能或 HOF 收益；既有上游弃用警告未处理。
+
+## 2026-09-12 - Full quality audit conclusion
+
+- **Confirmed**：完成分支/状态、静态加载、完整 Julia 回归、Python bridge、compileall、Ruff 和 diff-check 审查；未发现本次合并引入的 BUG。
+- **Decision**：将可验证的公共 dispatch 回归作为本轮质量提升；更大范围性能和重构列为后续独立计划，不在无 benchmark 证据时修改核心搜索逻辑。
+- **Unknown**：上游弃用提示和大规模搜索性能仍需单独处理。

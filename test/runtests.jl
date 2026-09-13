@@ -60,6 +60,26 @@ end
             [1, 2, 4], 3, 0.0, MersenneTwister(seed)
         ) in (2, 3)
     end
+    # Exercise the public dispatch entry, not only the tree-level helper.
+    dispatch_dataset = SR.Dataset(
+        [1.0 2.0; 2.0 3.0],
+        [3.0, 5.0];
+        variable_names=["x1", "x2"],
+        X_dimensions=[[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]],
+        y_dimensions=[0, 0, 0, 0, 0, 0, 0],
+    )
+    dispatch_member1 = SR.PopMember(dispatch_dataset, parent1, options; deterministic=true)
+    dispatch_member2 = SR.PopMember(dispatch_dataset, parent2, options; deterministic=true)
+    dispatched = SR.crossover(
+        dispatch_member1,
+        dispatch_member2,
+        SR.SizeMatchedCrossover(; size_tolerance=0.0),
+        options;
+        trace=nothing,
+    )
+    @test dispatched isa SR.CrossoverResult
+    @test SR.count_nodes(SR.get_tree(dispatched.child1)) == SR.count_nodes(SR.get_tree(parent1))
+    @test SR.count_nodes(SR.get_tree(dispatched.child2)) == SR.count_nodes(SR.get_tree(parent2))
     before1, before2 = SR.string_tree(parent1), SR.string_tree(parent2)
     for seed in 1:12
         child1, child2 = MutationFunctions.size_matched_crossover_trees(
