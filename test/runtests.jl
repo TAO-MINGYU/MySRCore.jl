@@ -817,6 +817,36 @@ end
     @test_throws Exception Options(dimensionless_constants_only=true)
 end
 
+@testset "Dimension-only operator fast paths" begin
+    # These expressions exercise the common arithmetic/unary branches in
+    # `_transition_dimension`; the matching output dimensions also verify that
+    # bypassing temporary Quantity values preserves the public contract.
+    options = Options(formula_type=:theoretical, default_plugins=())
+    X = [1.0 2.0; 2.0 4.0]
+    dims = [[1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0]]
+    cases = (
+        ("x1 * x2", [1, 1, 0, 0, 0, 0, 0]),
+        ("x1 / x2", [1, -1, 0, 0, 0, 0, 0]),
+        ("sqrt(x1 * x1)", [1, 0, 0, 0, 0, 0, 0]),
+        ("sin(x1 / x1)", [0, 0, 0, 0, 0, 0, 0]),
+    )
+    for (formula, y_dimension) in cases
+        dataset = Dataset(X, [1.0, 2.0];
+            variable_names=["x1", "x2"],
+            X_dimensions=dims,
+            y_dimensions=y_dimension,
+        )
+        tree = parse_expression(formula;
+            operators=options.operators,
+            variable_names=["x1", "x2"],
+            node_type=Node{Float64,2},
+        )
+        result = infer_dimension_static(tree, dataset, options)
+        @test result.valid
+        @test result.output_dimension == dimension(dataset.y_dimensions)
+    end
+end
+
 @testset "Semi-theoretical C_dim boundary" begin
     X = reshape(Float64[1, 2, 3], 1, :)
     y = copy(vec(X))

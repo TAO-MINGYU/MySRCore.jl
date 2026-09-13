@@ -214,38 +214,43 @@ function _transition_dimension(op, nodes, child_dimensions, ::Type{T}) where {T}
     name = lowercase(string(op))
     identity = dimensional_scale_identity(T)
     identity === nothing && return nothing
-    quantities = [DynamicQuantities.constructorof(
-        Quantity{T,typeof(first(child_dimensions))}
-    )(identity, d) for d in child_dimensions]
-    zero_dimension = dimension(quantities[1] / quantities[1])
-    if length(quantities) == 2
+    # The common built-in operators only need dimension algebra.  Avoid
+    # constructing temporary Quantity values here: this function is called for
+    # every node during generation-time constraint checks.  Unknown/custom
+    # operators still use the Quantity fallback below so their existing
+    # semantics are unchanged.
+    zero_dimension = dimension(1)
+    if length(child_dimensions) == 2
         left, right = child_dimensions
         if name in ("+", "-", "plus", "sub", "mod")
             return left == right ? left : nothing
         elseif name in ("*", "×", "mult", "multiply")
-            return dimension(quantities[1] * quantities[2])
+            return left * right
         elseif name in ("/", "÷")
-            return dimension(quantities[1] / quantities[2])
+            return left / right
         elseif name in ("^", "pow", "safe_pow")
             child = nodes[2]
             child.constant || return nothing
             child_dimensions[2] == zero_dimension || return nothing
-            return dimension(safe_pow(quantities[1], child.val))
+            return left ^ child.val
         end
-    elseif length(quantities) == 1
+    elseif length(child_dimensions) == 1
         child = child_dimensions[1]
         if name in ("neg", "-", "abs", "relu", "round", "floor", "ceil")
             return child
         elseif name in ("sqrt", "safe_sqrt")
-            return dimension(safe_sqrt(quantities[1]))
+            return child ^ (1 // 2)
         elseif name == "cbrt"
-            return dimension(cbrt(quantities[1]))
+            return child ^ (1 // 3)
         elseif name == "inv"
-            return dimension(inv(quantities[1]))
+            return inv(child)
         elseif name in ("sin", "cos", "tan", "sinh", "cosh", "tanh", "asin", "acos", "atan", "exp", "log")
             return child == zero_dimension ? zero_dimension : nothing
         end
     end
+    quantities = [DynamicQuantities.constructorof(
+        Quantity{T,typeof(first(child_dimensions))}
+    )(identity, d) for d in child_dimensions]
     try
         result = length(quantities) == 1 ? op(quantities[1]) : op(quantities...)
         return result isa AbstractQuantity ? dimension(result) : zero_dimension
