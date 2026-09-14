@@ -638,15 +638,15 @@ $(OPTION_DESCRIPTIONS)
     @nospecialize(mutations::Union{AbstractVector,Tuple,Nothing} = nothing),
     @nospecialize(default_crossovers::Union{AbstractVector,Tuple,Nothing} = nothing),
     @nospecialize(crossovers::Union{AbstractVector,Tuple,Nothing} = nothing),
-    @nospecialize(crossover_probability::Union{Real,Nothing} = nothing),
-    @nospecialize(annealing::Union{Bool,Nothing} = nothing),
-    @nospecialize(alpha::Union{Nothing,Real} = nothing),
+    crossover_probability::Union{Real,Nothing} = nothing,
+    annealing::Union{Bool,Nothing} = nothing,
+    alpha::Union{Nothing,Real} = nothing,
     ###           perturbation_factor
     ###           probability_negate_constant
     ###           skip_mutation_failures
     ## 6. Tournament Selection:
-    @nospecialize(tournament_selection_n::Union{Nothing,Integer} = nothing),
-    @nospecialize(tournament_selection_p::Union{Nothing,Real} = nothing),
+    tournament_selection_n::Union{Nothing,Integer} = nothing,
+    tournament_selection_p::Union{Nothing,Real} = nothing,
     ## 7. Constant Optimization:
     ###           optimizer_algorithm
     ###           optimizer_nrestarts
@@ -666,7 +666,7 @@ $(OPTION_DESCRIPTIONS)
     ## 10. Stopping Criteria:
     ###           timeout_in_seconds
     ###           max_evals
-    @nospecialize(early_stop_condition::Union{Function,Real,Nothing} = nothing),
+    early_stop_condition::Union{Function,Real,Nothing} = nothing,
     ## 11. Performance and Parallelization:
     ###           [others, passed to `equation_search`]
     ###           batching
