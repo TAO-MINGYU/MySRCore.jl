@@ -377,3 +377,14 @@
 - **Unknown/Residual**：四臂 ablation 尚未在 Carbon/RS 运行；搜索质量、完整 HOF、复杂度
   frontier、耗时和内存影响均未作结论。环境 `env_mysr` 通过授权的 `Pkg.instantiate()`
   补齐了该 worktree `Project.toml` 的 Julia 依赖，生成的 `Manifest.toml` 未纳入源码提交。
+
+## 2026-09-18 - Submit parent-selection benchmark
+
+- **Confirmed**：包含本 worktree MySRCore 的 source snapshot 已部署到新的 Carbon run root；
+  排除 Python cache 后本地/远端 source hash 一致。
+- **Decision**：四个 opt-in arm 使用完整数据的 epsilon-lexicase 或 scalar tournament，
+  并与 regularized evolution 或 age-fitness Pareto survival 交叉；MySR 默认策略未改变。
+- **Verification**：MySRCore `test/runtests.jl` 全部通过，parent selection testset 为
+  `14/14`；Carbon doctor/matched-environment gate 通过；array/reducer 为
+  `32620/32621`、`32624/32625`、`32628/32629`、`32632/32633`。
+- **Unknown**：远程 reducer 尚未完成，完整 frontier 和搜索质量影响待回收结果后评估。
