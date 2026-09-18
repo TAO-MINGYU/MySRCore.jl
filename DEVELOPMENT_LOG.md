@@ -388,3 +388,11 @@
   `14/14`；Carbon doctor/matched-environment gate 通过；array/reducer 为
   `32620/32621`、`32624/32625`、`32628/32629`、`32632/32633`。
 - **Unknown**：远程 reducer 尚未完成，完整 frontier 和搜索质量影响待回收结果后评估。
+
+## 2026-09-18 - Move parent-selection benchmark to node2
+
+- **Decision**：取消旧 Carbon-pinned benchmark jobs，仅保留旧结果目录；不修改其他用户任务。
+- **Confirmed**：新的 source snapshot/run root 固定到 node2，node2 为 512 CPU idle 节点。
+- **Verification**：新的四组 array/reducer 为 `32696/32697`、`32702/32703`、`32708/32709`、
+  `32714/32715`；每组 concurrency=2，首批 8 个 64-CPU array elements 均在 node2 运行。
+- **Unknown**：远程 reducer 尚未完成，完整 frontier 和搜索质量影响待回收结果后评估。
