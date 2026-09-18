@@ -332,6 +332,10 @@ struct Options{
     loss_function::Union{Nothing,Function}
     loss_function_expression::Union{Nothing,Function}
     loss_scale::Symbol
+    loss_preset::Symbol
+    uncertainty_mode::Symbol
+    robust_delta::Float64
+    student_nu::Float64
     node_type::Type{N}
     expression_type::Type{E}
     expression_options::EO
@@ -467,6 +471,14 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :rnn_gpsr_feedback_fraction,
         :rnn_gpsr_quality_gate,
         :rnn_gpsr_maxsize,
+        :elementwise_loss,
+        :loss_function,
+        :loss_function_expression,
+        :loss_scale,
+        :loss_preset,
+        :uncertainty_mode,
+        :robust_delta,
+        :student_nu,
         :node_type,
         :expression_type,
         :expression_options,

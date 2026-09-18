@@ -506,6 +506,9 @@ which is useful for debugging and profiling.
     More iterations will improve the results.
 - `weights::Union{AbstractMatrix{T}, AbstractVector{T}, Nothing}=nothing`: Optionally
     weight the loss for each `y` by this value (same shape as `y`).
+- `sigma`, `sigma_minus`, `sigma_plus`: Optional positive measurement uncertainty
+    arrays. `sigma` is used by `uncertainty_mode=:symmetry`; the two side-specific
+    arrays are used by `uncertainty_mode=:asymmetry`. They have the same shape as `y`.
 - `options::AbstractOptions=Options()`: The options for the search, such as
     which operators to use, evolution hyperparameters, etc.
 - `variable_names::Union{Vector{String}, Nothing}=nothing`: The names
@@ -609,6 +612,9 @@ function equation_search(
     y::AbstractMatrix;
     niterations::Int=100,
     weights::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
+    sigma::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
+    sigma_minus::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
+    sigma_plus::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
     options::AbstractOptions=Options(),
     variable_names::Union{AbstractVector{String},Nothing}=nothing,
     display_variable_names::Union{AbstractVector{String},Nothing}=variable_names,
@@ -648,6 +654,44 @@ function equation_search(
         @assert length(weights) == length(y)
         weights = reshape(weights, size(y))
     end
+    for (name, values) in ((:sigma, sigma), (:sigma_minus, sigma_minus), (:sigma_plus, sigma_plus))
+        values === nothing && continue
+        length(values) == length(y) ||
+            throw(DimensionMismatch("$(name) must have the same number of entries as y."))
+        all(v -> isfinite(v) && v > zero(v), values) ||
+            throw(ArgumentError("$(name) values must be finite and strictly positive."))
+    end
+    if weights !== nothing && (sigma !== nothing || sigma_minus !== nothing || sigma_plus !== nothing)
+        throw(ArgumentError("`weights` cannot be combined with measurement uncertainty arrays."))
+    end
+    if options.uncertainty_mode == :symmetry && (sigma_minus !== nothing || sigma_plus !== nothing)
+        throw(ArgumentError("uncertainty_mode=:symmetry accepts `sigma`, not sigma_minus/sigma_plus."))
+    end
+    if options.uncertainty_mode == :symmetry && sigma === nothing
+        throw(ArgumentError("uncertainty_mode=:symmetry requires sigma."))
+    end
+    if options.uncertainty_mode == :asymmetry &&
+       (sigma_minus === nothing || sigma_plus === nothing)
+        throw(ArgumentError("uncertainty_mode=:asymmetry requires sigma_minus and sigma_plus."))
+    end
+    if options.uncertainty_mode == :none &&
+       (sigma !== nothing || sigma_minus !== nothing || sigma_plus !== nothing)
+        throw(ArgumentError("Measurement uncertainty arrays require uncertainty_mode=:symmetry or :asymmetry."))
+    end
+    if sigma !== nothing
+        sigma = reshape(sigma, size(y))
+    end
+    if sigma_minus !== nothing
+        sigma_minus = reshape(sigma_minus, size(y))
+    end
+    if sigma_plus !== nothing
+        sigma_plus = reshape(sigma_plus, size(y))
+    end
+
+    extra = merge(
+        extra,
+        (sigma=sigma, sigma_minus=sigma_minus, sigma_plus=sigma_plus),
+    )
 
     datasets = construct_datasets(
         X,

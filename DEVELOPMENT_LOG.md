@@ -352,6 +352,13 @@
 - **Confirmed**：迁移 fraction 现在要求 finite 且在 [0,1]，支持显式 RNG；Dataset 拒绝空样本和非法权重；TemplateStructure 拒绝非法 feature/parameter 计数，模板评估对特征行数不足给出 DimensionMismatch。
 - **Verification**：完整 `Pkg.test()` 通过，新增 Input validation guards `5/5`；既有 `@nospecialize` 编译提示仍存在但不影响测试。
 - **Unknown/Proposal**：多输入 custom combiner 的 ComposableExpression 适配、Dataset 更细的 y 校验和 novelty hash 碰撞保护仍待后续设计。
+
+## 2026-09-18 - Uncertainty-aware loss presets and RNN objective alignment
+
+- **Decision**：feature branch `feature/uncertainty-loss-v1` 增加 `Options.loss_preset`、`uncertainty_mode`、`robust_delta`、`student_nu`；continuous split-normal 作为 asymmetric Gaussian likelihood，likelihood 仅允许 `loss_scale=:linear`。
+- **Confirmed**：LossFunctions 覆盖三类 uncertainty 情境；不对称数组保存在 `Dataset.extra`，并在多输出与 `SubDataset` batch 中按索引切片。Julia wrapper 拒绝非正/非有限 uncertainty 和 weights 混用。
+- **Confirmed**：RNN-GPSR bootstrap 读取真实 `PopMember.cost`，与后续 feedback 使用同一 objective/cost contract；不改变 RNN 序列训练 loss。
+- **Verification**：MySRCore `Pkg.test()` 通过，uncertainty `9/9`；batch/Student-t/负 NLL/入口校验覆盖通过。未运行 benchmark 或 push；TypeSpec 前端残余独立记录。
 ## 2026-09-14 - Multi-input custom combiner AST support
 
 - **Confirmed**：`@template_spec` now routes non-inner combiner calls through an AST-aware `_template_call`; runtime `ValidVector` semantics remain direct, while `get_tree` records custom operators in a temporary operator vocabulary. Invalid arity produces an explicit `ArgumentError` instead of tuple `BoundsError`.

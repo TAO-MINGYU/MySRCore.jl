@@ -371,6 +371,17 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
         and is ideal for traditional loss functions that are always positive.
     - `:linear`: Uses direct differences between losses. This mode handles any loss values (including negative)
         and is useful for custom loss functions, especially those based on likelihoods.
+- `loss_preset`: Optional built-in loss family. Supported values are `:default`, `:l1`,
+    `:l2`, `:huber`, `:pseudo_huber`, `:log_cosh`, `:gaussian_nll`,
+    `:asymmetric_gaussian_nll`, `:asymmetric_huber`, `:asymmetric_pseudo_huber`, and
+    `:asymmetric_student_t_nll`. `loss_scale` remains score scaling and does not take
+    logarithms of predictions or targets.
+- `uncertainty_mode`: `:none`, `:symmetry`, or `:asymmetry`. Symmetric mode reads
+    `dataset.extra.sigma`; asymmetric mode reads `dataset.extra.sigma_minus` and
+    `dataset.extra.sigma_plus`. The public `equation_search` wrapper accepts these
+    arrays directly.
+- `robust_delta`: Positive Huber/pseudo-Huber transition in standardized residual units.
+- `student_nu`: Positive degrees of freedom for the asymmetric Student-t preset.
 - `expression_spec::AbstractExpressionSpec`: A specification of what types of expressions to use in the
     search. For example, `ExpressionSpec()` (default). See `TemplateExpressionSpec` for structured
     expressions and learnable parameters.
@@ -694,6 +705,10 @@ $(OPTION_DESCRIPTIONS)
     ## 2. Setting the Search Size:
     ## 3. The Objective:
     loss_scale::Symbol=:log,
+    loss_preset::Symbol=:default,
+    uncertainty_mode::Symbol=:none,
+    robust_delta::Real=1.0,
+    student_nu::Real=4.0,
     ## 4. Working with Complexities:
     complexity_mapping::Union{Function,ComplexityMapping,Nothing}=nothing,
     use_frequency::Bool=true,
@@ -884,6 +899,10 @@ $(OPTION_DESCRIPTIONS)
         )
     end
 
+    custom_loss_provided = any(
+        !isnothing,
+        (elementwise_loss, loss_function, loss_function_expression),
+    )
     elementwise_loss = something(elementwise_loss, L2DistLoss())
 
     if complexity_mapping !== nothing
@@ -952,6 +971,52 @@ $(OPTION_DESCRIPTIONS)
     @assert warmup_maxsize_by >= 0.0f0
     @assert tournament_selection_n < population_size "`tournament_selection_n` must be less than `population_size`"
     @assert loss_scale in (:log, :linear) "`loss_scale` must be either log or linear"
+    loss_preset in (
+        :default,
+        :l1,
+        :l2,
+        :huber,
+        :pseudo_huber,
+        :log_cosh,
+        :gaussian_nll,
+        :asymmetric_gaussian_nll,
+        :asymmetric_huber,
+        :asymmetric_pseudo_huber,
+        :asymmetric_student_t_nll,
+    ) || throw(ArgumentError("Unsupported `loss_preset`: $(loss_preset)."))
+    uncertainty_mode in (:none, :symmetry, :asymmetry) ||
+        throw(ArgumentError("`uncertainty_mode` must be :none, :symmetry, or :asymmetry."))
+    isfinite(robust_delta) && robust_delta > 0 ||
+        throw(ArgumentError("`robust_delta` must be finite and positive."))
+    isfinite(student_nu) && student_nu > 0 ||
+        throw(ArgumentError("`student_nu` must be finite and positive."))
+    if uncertainty_mode == :asymmetry &&
+       loss_preset ∉ (:default, :asymmetric_gaussian_nll, :asymmetric_huber,
+        :asymmetric_pseudo_huber, :asymmetric_student_t_nll)
+        throw(ArgumentError("Asymmetry requires an asymmetric loss preset."))
+    end
+    if loss_preset == :gaussian_nll && uncertainty_mode != :symmetry
+        throw(ArgumentError("`gaussian_nll` requires uncertainty_mode=:symmetry."))
+    end
+    likelihood_preset = loss_preset in
+        (:gaussian_nll, :asymmetric_gaussian_nll, :asymmetric_student_t_nll) ||
+        (uncertainty_mode == :asymmetry && loss_preset == :default)
+    if likelihood_preset && loss_scale == :log
+        throw(ArgumentError(
+            "Likelihood loss presets can be negative; use loss_scale=:linear."
+        ))
+    end
+    if loss_preset != :default && custom_loss_provided
+        throw(ArgumentError("Built-in loss presets cannot be combined with custom loss functions."))
+    end
+    if uncertainty_mode != :none && custom_loss_provided
+        throw(ArgumentError("Uncertainty modes cannot be combined with custom loss functions."))
+    end
+    if uncertainty_mode != :asymmetry &&
+       loss_preset in (:asymmetric_gaussian_nll, :asymmetric_huber,
+        :asymmetric_pseudo_huber, :asymmetric_student_t_nll)
+        throw(ArgumentError("Asymmetric loss presets require uncertainty_mode=:asymmetry."))
+    end
     0.0 <= rnn_gpsr_seed_fraction <= 1.0 ||
         throw(ArgumentError("`rnn_gpsr_seed_fraction` must be in [0, 1]."))
     rnn_gpsr_candidate_count >= 8 ||
@@ -1391,6 +1456,10 @@ $(OPTION_DESCRIPTIONS)
         loss_function,
         loss_function_expression,
         loss_scale,
+        loss_preset,
+        uncertainty_mode,
+        Float64(robust_delta),
+        Float64(student_nu),
         node_type,
         expression_type,
         expression_options,

@@ -21,6 +21,102 @@ using Random: MersenneTwister
     @test_throws ArgumentError Dataset(X, [1.0, 2.0]; weights=[0.0, 0.0])
 end
 
+@testset "Uncertainty-aware loss presets" begin
+    SR = MySRCore.SymbolicRegression
+    X = reshape(Float64[1.0, -1.0], 1, :)
+    y = zeros(2)
+    expr = SR.parse_expression(
+        "x1";
+        operators=SR.Options(binary_operators=(+,), unary_operators=()).operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    asym_dataset = SR.Dataset(
+        X,
+        y;
+        extra=(sigma_minus=Float64[2.0, 2.0], sigma_plus=Float64[4.0, 4.0]),
+    )
+    asym_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_gaussian_nll,
+        loss_scale=:linear,
+        default_plugins=(),
+    )
+    asym_loss = SR.LossFunctionsModule.eval_loss(expr, asym_dataset, asym_options)
+    @test isfinite(asym_loss)
+    @test asym_loss > 0
+    batched_asym_dataset = SR.batch(asym_dataset, [2])
+    @test isfinite(SR.LossFunctionsModule.eval_loss(expr, batched_asym_dataset, asym_options))
+    robust_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_huber,
+        robust_delta=1.0,
+        default_plugins=(),
+    )
+    @test SR.LossFunctionsModule.eval_loss(expr, asym_dataset, robust_options) ≈ 0.078125
+    student_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_student_t_nll,
+        loss_scale=:linear,
+        student_nu=4.0,
+        default_plugins=(),
+    )
+    @test isfinite(SR.LossFunctionsModule.eval_loss(expr, asym_dataset, student_options))
+    negative_dataset = SR.Dataset(
+        zeros(1, 2),
+        zeros(2);
+        extra=(sigma_minus=Float64[0.1, 0.1], sigma_plus=Float64[0.1, 0.1]),
+    )
+    negative_loss = SR.LossFunctionsModule.eval_loss(expr, negative_dataset, asym_options)
+    @test negative_loss < 0
+    symmetric_dataset = SR.Dataset(
+        X,
+        y;
+        extra=(sigma=Float64[2.0, 2.0],),
+    )
+    symmetric_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:symmetry,
+        loss_preset=:gaussian_nll,
+        loss_scale=:linear,
+        default_plugins=(),
+    )
+    @test isfinite(SR.LossFunctionsModule.eval_loss(expr, symmetric_dataset, symmetric_options))
+    no_uncertainty_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        loss_preset=:l1,
+        default_plugins=(),
+    )
+    @test SR.LossFunctionsModule.eval_loss(expr, SR.Dataset(X, y), no_uncertainty_options) ≈ 1.0
+    @test_throws ArgumentError SR.Options(
+        uncertainty_mode=:asymmetry,
+        loss_preset=:huber,
+        default_plugins=(),
+    )
+    @test_throws ArgumentError SR.Options(
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_gaussian_nll,
+        default_plugins=(),
+    )
+    @test_throws ArgumentError SR.equation_search(
+        X,
+        y;
+        sigma_minus=[1.0, -1.0],
+        sigma_plus=[1.0, 1.0],
+        options=asym_options,
+        niterations=0,
+        parallelism=:serial,
+    )
+end
+
 @testset "MySRCore package identity" begin
     @test nameof(MySRCore) == :MySRCore
     @test isdefined(MySRCore, :Options)
