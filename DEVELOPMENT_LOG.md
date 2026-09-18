@@ -395,3 +395,10 @@
 - **Environment limitation**：用户因计算资源达到上限中止完整 `pytest -q mysr/test`；该
   进程以 143 退出，未得到完整最终报告，不能据此宣称前端 405 项全通过。未跟踪的
   `AGENTS.md` 保持原状。
+
+## 2026-09-18 - Integrate loss-audit branch into canonical main
+
+- **Decision**：将 `feature/loss-audit-quality-20260918` 快进合并到本仓库 `main`；该 feature 相对 `main` 领先 5 个提交且 `main` 是其祖先，因此不制造额外合并提交。
+- **Confirmed**：本地 `main` 与 `origin/main` 均指向 `0da5bd9`；已删除本地及远程 `feature/loss-audit-quality-20260918`，并保留 `backup/pre-main-merge-loss-audit-20260918` 与 `backup/pre-feature-delete-loss-audit-20260918`。
+- **Verification**：合并后所有本轮修改的 Julia 文件及 `test/runtests.jl` 均通过 `Meta.parseall`，`git diff --check` 通过；`main` 已成功推送。
+- **Scope**：独立的 `worktrees/parent-selection/MySRCore.jl` 及其 `worktree/parent-selection-20260918` 分支未修改、未删除。
