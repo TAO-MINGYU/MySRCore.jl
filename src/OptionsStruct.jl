@@ -275,6 +275,8 @@ struct Options{
     complexity_mapping::CM
     tournament_selection_n::Int
     tournament_selection_p::Float64
+    parent_selection::Symbol
+    survival_strategy::Symbol
     parsimony::Float64
     # MySR formula type controls the dimensional contract.
     formula_type::Symbol
@@ -445,6 +447,8 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :op_constraints,
         :nested_constraints,
         :complexity_mapping,
+        :parent_selection,
+        :survival_strategy,
         :formula_type,
         :mutation_affinity,
         :mutation_affinity_strength,

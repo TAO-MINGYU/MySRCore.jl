@@ -186,6 +186,55 @@ function eval_loss(
     return loss_val
 end
 
+"""
+    eval_case_losses(tree, dataset, options; eval_context=nothing)
+
+Evaluate an expression's loss contribution for every observation.  This is
+used by parent selectors that need the error vector rather than only the
+aggregate scalar loss.  Custom aggregate objectives and custom elementwise
+functions are deliberately unsupported here because their case semantics
+cannot be inferred safely; callers should fall back to scalar-cost selection
+in that situation.
+
+For weighted data, the returned values include the per-observation weight.
+The common normalization by `sum(weights)` is omitted because it is the same
+positive constant for every candidate and therefore does not affect
+epsilon-lexicase comparisons.
+"""
+function eval_case_losses(
+    tree::Union{AbstractExpression{T},AbstractExpressionNode{T}},
+    dataset::Dataset{T,L},
+    options::AbstractOptions;
+    eval_context=nothing,
+)::Union{Nothing,Vector{L}} where {T<:DATA_TYPE,L<:LOSS_TYPE}
+    # A user-supplied aggregate objective may depend on correlations between
+    # observations or on derivative information.  There is no correct generic
+    # way to split such a scalar into case losses.
+    isnothing(options.loss_function) || return nothing
+    isnothing(options.loss_function_expression) || return nothing
+    options.elementwise_loss isa SupervisedLoss || return nothing
+    isnothing(dataset.y) && return nothing
+
+    eval_context === nothing || reset_index!(eval_context.buffer)
+    prediction, completion = eval_tree_dispatch(tree, dataset, options, eval_context)
+    if !completion || isnothing(prediction)
+        return fill(L(Inf), dataset.n)
+    end
+
+    errors = Vector{L}(undef, dataset.n)
+    loss = options.elementwise_loss::SupervisedLoss
+    if is_weighted(dataset)
+        @inbounds for i in eachindex(errors, prediction, dataset.y, dataset.weights)
+            errors[i] = L(dataset.weights[i]) * L(loss(prediction[i], dataset.y[i]))
+        end
+    else
+        @inbounds for i in eachindex(errors, prediction, dataset.y)
+            errors[i] = L(loss(prediction[i], dataset.y[i]))
+        end
+    end
+    return errors
+end
+
 # Just so we can pass either PopMember or Node here:
 get_tree_from_member(t::Union{AbstractExpression,AbstractExpressionNode}) = t
 get_tree_from_member(m) = m.tree

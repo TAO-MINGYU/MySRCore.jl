@@ -381,6 +381,13 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `tournament_selection_p`: The fittest expression in a tournament is to be
     selected with probability `p`, the next fittest with probability `p*(1-p)`,
     and so forth.
+- `parent_selection`: Parent-selection policy. `:tournament` preserves the
+    current scalar-cost tournament; `:epsilon_lexicase` enables full-data
+    epsilon-lexicase selection when the configured loss supports per-case
+    evaluation.
+- `survival_strategy`: Population-survival policy. `:regularized_evolution`
+    preserves the current oldest-member replacement; `:age_fitness_pareto`
+    applies Age-Fitness Pareto survival to the parent and offspring pool.
 - `topn`: Number of equations to return to the host process, and to
     consider for the hall of fame.
 - `complexity_of_operators`: What complexity should be assigned to each operator,
@@ -647,6 +654,8 @@ $(OPTION_DESCRIPTIONS)
     ## 6. Tournament Selection:
     tournament_selection_n::Union{Nothing,Integer} = nothing,
     tournament_selection_p::Union{Nothing,Real} = nothing,
+    parent_selection::Symbol=:tournament,
+    survival_strategy::Symbol=:regularized_evolution,
     ## 7. Constant Optimization:
     ###           optimizer_algorithm
     ###           optimizer_nrestarts
@@ -952,6 +961,10 @@ $(OPTION_DESCRIPTIONS)
     @assert warmup_maxsize_by >= 0.0f0
     @assert tournament_selection_n < population_size "`tournament_selection_n` must be less than `population_size`"
     @assert loss_scale in (:log, :linear) "`loss_scale` must be either log or linear"
+    parent_selection in (:tournament, :epsilon_lexicase) ||
+        throw(ArgumentError("`parent_selection` must be `:tournament` or `:epsilon_lexicase`."))
+    survival_strategy in (:regularized_evolution, :age_fitness_pareto) ||
+        throw(ArgumentError("`survival_strategy` must be `:regularized_evolution` or `:age_fitness_pareto`."))
     0.0 <= rnn_gpsr_seed_fraction <= 1.0 ||
         throw(ArgumentError("`rnn_gpsr_seed_fraction` must be in [0, 1]."))
     rnn_gpsr_candidate_count >= 8 ||
@@ -1336,6 +1349,8 @@ $(OPTION_DESCRIPTIONS)
         complexity_mapping,
         tournament_selection_n,
         tournament_selection_p,
+        parent_selection,
+        survival_strategy,
         parsimony,
         formula_type,
         mutation_affinity,
@@ -1504,6 +1519,8 @@ function default_options(@nospecialize(version::Union{VersionNumber,Nothing} = n
         # Tournament Selection
         tournament_selection_n=15,
         tournament_selection_p=0.982,
+        parent_selection=:tournament,
+        survival_strategy=:regularized_evolution,
         # Migration between Populations
         fraction_replaced=0.00036,
         ## ^Note: the optimal value found was 0.00000425,

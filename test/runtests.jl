@@ -27,6 +27,56 @@ end
     @test isdefined(MySRCore, :equation_search)
 end
 
+@testset "Parent selection policies" begin
+    SR = MySRCore.SymbolicRegression
+    @test SR.Options().parent_selection == :tournament
+    @test SR.Options().survival_strategy == :regularized_evolution
+    @test SR.Options(
+        parent_selection=:epsilon_lexicase,
+        survival_strategy=:age_fitness_pareto,
+        default_plugins=(),
+    ).parent_selection == :epsilon_lexicase
+    @test_throws ArgumentError SR.Options(parent_selection=:unknown)
+    @test_throws ArgumentError SR.Options(survival_strategy=:unknown)
+
+    errors = [0.0 1.0; 2.0 3.0]
+    @test SR.epsilon_lexicase_index(errors; rng=MersenneTwister(1)) == 1
+    @test SR.epsilon_lexicase_index(errors; rng=MersenneTwister(2)) == 1
+
+    pool = [
+        (cost=1.0, birth=1),
+        (cost=2.0, birth=2),
+        (cost=0.5, birth=3),
+    ]
+    survivors = SR.age_fitness_pareto_survivor_indices(pool, 2)
+    @test length(survivors) == 2
+    @test 3 in survivors
+    @test !(2 in survivors)
+
+    dataset = SR.Dataset(reshape(Float64[1, 2, 3], 1, :), [1.0, 2.0, 3.0])
+    options = SR.Options(
+        parent_selection=:epsilon_lexicase,
+        batching=false,
+        default_plugins=(),
+    )
+    @test SR.parent_selection_diagnostic(options, dataset).reason == :supported
+    batched_options = SR.Options(
+        parent_selection=:epsilon_lexicase,
+        batching=true,
+        default_plugins=(),
+    )
+    @test SR.parent_selection_diagnostic(batched_options, dataset).reason == :batching_enabled
+    expr = SR.parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,1},
+    )
+    case_losses = SR.LossFunctionsModule.eval_case_losses(expr, dataset, options)
+    @test case_losses isa Vector{Float64}
+    @test length(case_losses) == dataset.n
+end
+
 @testset "Size-matched crossover" begin
     SR = MySRCore.SymbolicRegression
     MutationFunctions = SR.MutationFunctionsModule

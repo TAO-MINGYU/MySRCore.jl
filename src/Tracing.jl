@@ -145,10 +145,16 @@ end
     should_replace,
     selected_attempt_idx,
     options,
+    ; oldest_member=nothing,
 )
     isnothing(trace) && return nothing
     mutations = get!(TraceType, trace, "mutations")
-    members = should_replace ? [population.members[oldest]] : eltype(population.members)[]
+    replacement_member = if should_replace
+        oldest_member === nothing ? population.members[oldest] : oldest_member
+    else
+        nothing
+    end
+    members = should_replace ? [replacement_member] : eltype(population.members)[]
     for (parent, child, _) in steps
         push!(members, parent, child)
     end
@@ -167,7 +173,7 @@ end
     end
     if should_replace
         death_event = TraceType("type" => "death", "time" => time())
-        push!(mutations[string(population.members[oldest].ref)]["events"], death_event)
+        push!(mutations[string(replacement_member.ref)]["events"], death_event)
     end
     return nothing
 end
@@ -183,19 +189,21 @@ end
     oldest2,
     crossover_trace::MaybeTrace,
     options,
+    ; oldest_member1=nothing, oldest_member2=nothing,
 )
     isnothing(trace) && return nothing
     @assert crossover_trace isa TraceType
     mutations = get!(TraceType, trace, "mutations")
-    for member in (
-        parent1,
-        parent2,
-        child1,
-        child2,
-        population.members[oldest1],
-        population.members[oldest2],
-    )
+    for member in (parent1, parent2, child1, child2)
         _trace_member!(mutations, member, options)
+    end
+    if oldest1 > 0
+        member1 = oldest_member1 === nothing ? population.members[oldest1] : oldest_member1
+        _trace_member!(mutations, member1, options)
+    end
+    if oldest2 > 0
+        member2 = oldest_member2 === nothing ? population.members[oldest2] : oldest_member2
+        _trace_member!(mutations, member2, options)
     end
 
     crossover_event = TraceType(
@@ -211,8 +219,14 @@ end
     death_event2 = TraceType("type" => "death", "time" => time())
     push!(mutations[string(parent1.ref)]["events"], crossover_event)
     push!(mutations[string(parent2.ref)]["events"], crossover_event)
-    push!(mutations[string(population.members[oldest1].ref)]["events"], death_event1)
-    push!(mutations[string(population.members[oldest2].ref)]["events"], death_event2)
+    if oldest1 > 0
+        member1 = oldest_member1 === nothing ? population.members[oldest1] : oldest_member1
+        push!(mutations[string(member1.ref)]["events"], death_event1)
+    end
+    if oldest2 > 0
+        member2 = oldest_member2 === nothing ? population.members[oldest2] : oldest_member2
+        push!(mutations[string(member2.ref)]["events"], death_event2)
+    end
     return nothing
 end
 

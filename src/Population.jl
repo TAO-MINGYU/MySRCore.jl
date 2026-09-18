@@ -15,6 +15,9 @@ using ..CoreModule:
     tournament_cost_multiplier,
     use_batching
 using ..LossFunctionsModule: eval_cost, update_baseline_loss!
+using ..ParentSelectionModule:
+    epsilon_lexicase_parent,
+    make_parent_selection_context
 using ..MutationFunctionsModule: gen_random_tree
 using ..DimensionGenerationModule: gen_random_tree_dimensional
 using ..CheckConstraintsModule: check_constraints
@@ -194,8 +197,29 @@ end
 
 # Sample the population, and get the best member from that sample
 function best_of_sample(
-    pop::Population{T,L,N}, options::AbstractOptions; plugin_states::Tuple
+    pop::Population{T,L,N},
+    options::AbstractOptions;
+    plugin_states::Tuple,
+    dataset=nothing,
+    selection_context=nothing,
 ) where {T,L,N}
+    if options.parent_selection === :epsilon_lexicase
+        context = if selection_context === nothing && dataset !== nothing
+            make_parent_selection_context(dataset, options)
+        else
+            selection_context
+        end
+        if context !== nothing
+            selected = epsilon_lexicase_parent(
+                pop.members,
+                context.dataset,
+                options;
+                plugin_states,
+                context,
+            )
+            selected === nothing || return copy(selected)
+        end
+    end
     sample = sample_pop(pop, options)
     return copy(_best_of_sample(sample.members, options; plugin_states))
 end

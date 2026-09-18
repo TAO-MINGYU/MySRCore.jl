@@ -9,6 +9,9 @@ using ..CoreModule:
     MutationStepResult,
     wrap_mutation_step
 using ..PopulationModule: Population, best_of_sample
+using ..ParentSelectionModule:
+    age_fitness_pareto_survivor_indices,
+    make_parent_selection_context
 using ..HallOfFameModule: HallOfFame, update_hall_of_fame!, _update_hall_of_fame_unchecked!
 using ..ComplexityModule: compute_complexity
 using ..MutateModule: next_generation
@@ -92,6 +95,55 @@ function reset!(step::MutationStep)
     return nothing
 end
 
+function _replace_regularized!(pop, babies)
+    n_babies = length(babies)
+    n_babies == 0 && return Int[]
+    n_babies <= pop.n || throw(ArgumentError("cannot insert more babies than population capacity"))
+    birth_order = [pop.members[member].birth for member in 1:pop.n]
+    slots = Int[]
+    for _ in 1:n_babies
+        slot = argmin_fast([
+            i in slots ? typemax(eltype(birth_order)) : birth_order[i] for i in 1:pop.n
+        ])
+        push!(slots, slot)
+    end
+    for (slot, baby) in zip(slots, babies)
+        pop.members[slot] = baby
+    end
+    return slots
+end
+
+function _replace_age_fitness_pareto!(pop, babies)
+    n_babies = length(babies)
+    n_babies == 0 && return Int[]
+    n_babies <= pop.n || throw(ArgumentError("cannot insert more babies than population capacity"))
+
+    old_members = copy(pop.members)
+    candidates = vcat(old_members, collect(babies))
+    survivors = age_fitness_pareto_survivor_indices(candidates, pop.n)
+    survivor_set = Set(survivors)
+    removed_slots = Int[i for i in 1:pop.n if !(i in survivor_set)]
+    surviving_babies = Int[
+        j for j in 1:n_babies if pop.n + j in survivor_set
+    ]
+    replacement_slots = fill(0, n_babies)
+    for (slot, baby_index) in zip(removed_slots, surviving_babies)
+        replacement_slots[baby_index] = slot
+    end
+    survivor_members = candidates[survivors]
+    for i in 1:pop.n
+        pop.members[i] = survivor_members[i]
+    end
+    return replacement_slots
+end
+
+function _replace_with_survival!(pop, babies, options::AbstractOptions)
+    if options.survival_strategy === :age_fitness_pareto
+        return _replace_age_fitness_pareto!(pop, babies)
+    end
+    return _replace_regularized!(pop, babies)
+end
+
 # Pass through the population several times, replacing the oldest
 # with the fittest of a small subsample
 function reg_evol_cycle(
@@ -106,6 +158,11 @@ function reg_evol_cycle(
 )::Tuple{P,Float64} where {T<:DATA_TYPE,L<:LOSS_TYPE,P<:Population{T,L}}
     num_evals = 0.0
     n_evol_cycles = ceil(Int, pop.n / options.tournament_selection_n)
+    selection_context = if options.parent_selection === :epsilon_lexicase
+        make_parent_selection_context(dataset, options)
+    else
+        nothing
+    end
     mutation_wrappers = strictmap(wrap_mutation_step, plugin_states, options.plugins)
     traced_steps = new_traced_steps(trace, eltype(pop.members))
     has_mutation_wrappers = any(!isnothing, mutation_wrappers)
@@ -128,7 +185,13 @@ function reg_evol_cycle(
 
     for i in 1:n_evol_cycles
         if rand() > options.crossover_probability
-            allstar = best_of_sample(pop, options; plugin_states)
+            allstar = best_of_sample(
+                pop,
+                options;
+                plugin_states,
+                dataset,
+                selection_context,
+            )
             reset!(base_step)
             result = wrapped_step(allstar)
             selected_attempt_idx = result.attempt_id
@@ -153,28 +216,39 @@ function reg_evol_cycle(
             mutation_accepted = selected_result.accepted
 
             should_replace = mutation_accepted || !options.skip_mutation_failures
-            oldest = if should_replace
-                argmin_fast([pop.members[member].birth for member in 1:(pop.n)])
-            else
-                0
-            end
+            old_members = should_replace ? copy(pop.members) : nothing
+            replacement_slots = should_replace ?
+                _replace_with_survival!(pop, [baby], options) : Int[]
+            replacement_slot = isempty(replacement_slots) ? 0 : first(replacement_slots)
 
             trace_mutation_attempts!(
                 trace,
                 traced_steps,
                 pop,
-                oldest,
-                should_replace,
+                replacement_slot,
+                replacement_slot != 0,
                 selected_attempt_idx,
-                options,
+                options
+                ; oldest_member=(replacement_slot > 0 ? old_members[replacement_slot] : nothing),
             )
 
             should_replace || continue
-            pop.members[oldest] = baby
 
         else # Crossover
-            allstar1 = best_of_sample(pop, options; plugin_states)
-            allstar2 = best_of_sample(pop, options; plugin_states)
+            allstar1 = best_of_sample(
+                pop,
+                options;
+                plugin_states,
+                dataset,
+                selection_context,
+            )
+            allstar2 = best_of_sample(
+                pop,
+                options;
+                plugin_states,
+                dataset,
+                selection_context,
+            )
 
             crossover_trace = new_trace(trace)
             baby1, baby2, crossover_accepted, tmp_num_evals = crossover_generation(
@@ -197,12 +271,10 @@ function reg_evol_cycle(
                 continue
             end
 
-            # Find the oldest members to replace:
-            oldest1 = argmin_fast([pop.members[member].birth for member in 1:(pop.n)])
-            BT = typeof(first(pop.members).birth)
-            oldest2 = argmin_fast([
-                i == oldest1 ? typemax(BT) : pop.members[i].birth for i in 1:(pop.n)
-            ])
+            old_members = copy(pop.members)
+            replacement_slots = _replace_with_survival!(pop, [baby1, baby2], options)
+            oldest1 = replacement_slots[1]
+            oldest2 = replacement_slots[2]
 
             trace_crossover!(
                 trace,
@@ -214,12 +286,10 @@ function reg_evol_cycle(
                 oldest1,
                 oldest2,
                 crossover_trace,
-                options,
+                options
+                ; oldest_member1=(oldest1 > 0 ? old_members[oldest1] : nothing),
+                oldest_member2=(oldest2 > 0 ? old_members[oldest2] : nothing),
             )
-
-            # Replace old members with new ones:
-            pop.members[oldest1] = baby1
-            pop.members[oldest2] = baby2
         end
     end
 

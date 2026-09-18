@@ -55,6 +55,9 @@ export Population,
 
     #Functions:
     equation_search,
+    parent_selection_diagnostic,
+    epsilon_lexicase_index,
+    age_fitness_pareto_survivor_indices,
     profiled_options,
     s_r_cycle,
     calculate_pareto_frontier,
@@ -258,6 +261,7 @@ using DispatchDoctor: @stable, @unstable
     include("MutationFunctions.jl")
     include("LossFunctions.jl")
     include("PopMember.jl")
+    include("ParentSelection.jl")
     include("ConstantOptimization.jl")
     include("Population.jl")
     include("HallOfFame.jl")
@@ -403,7 +407,15 @@ using .MutationFunctionsModule:
     gen_random_tree, gen_random_tree_fixed_size, random_node, crossover_trees
 using .InterfaceDynamicExpressionsModule:
     @extend_operators, require_copy_to_workers, make_example_inputs
-using .LossFunctionsModule: eval_loss, eval_cost, update_baseline_loss!, score_func
+using .LossFunctionsModule:
+    eval_loss,
+    eval_cost,
+    update_baseline_loss!,
+    score_func
+using .ParentSelectionModule:
+    parent_selection_diagnostic,
+    epsilon_lexicase_index,
+    age_fitness_pareto_survivor_indices
 using .ConstantOptimizationModule:
     optimize_constants,
     get_constants_for_optimization,

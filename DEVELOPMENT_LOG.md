@@ -357,3 +357,23 @@
 - **Confirmed**：`@template_spec` now routes non-inner combiner calls through an AST-aware `_template_call`; runtime `ValidVector` semantics remain direct, while `get_tree` records custom operators in a temporary operator vocabulary. Invalid arity produces an explicit `ArgumentError` instead of tuple `BoundsError`.
 - **Verification**：MySRCore full `Pkg.test()` passed after the dispatch guard (`b8e3d63`), including custom combiner operator test `3/3`; MySR original `test_template_custom_combiner_infers_num_features` passed.
 - **Decision**：AST fallback only handles a `MethodError` raised by the operator dispatch itself (`MethodError.f === op`), so internal user-function errors are not hidden.
+
+## 2026-09-18 - Opt-in epsilon-lexicase parent selection and AFP survival
+
+- **Decision**：在隔离分支 `worktree/parent-selection-20260918` 中增加
+  `parent_selection`（`:tournament` / `:epsilon_lexicase`）和
+  `survival_strategy`（`:regularized_evolution` / `:age_fitness_pareto`）选项；默认
+  保持旧路径。
+- **Confirmed**：epsilon-lexicase 使用完整数据、随机 case 顺序和每 case MAD ε；批处理、
+  自定义 aggregate loss 或无法安全拆分的 custom elementwise loss 回退 scalar tournament，
+  `parent_selection_diagnostic` 返回回退原因。AFP 在 parent+offspring pool 上以 scalar cost
+  和 `PopMember.birth` 的新旧顺序执行 Pareto 生存筛选。
+- **修改路径**：`src/ParentSelection.jl`、`src/LossFunctions.jl`、`src/Population.jl`、
+  `src/RegularizedEvolution.jl`、`src/Tracing.jl`、`src/Options.jl`、
+  `src/OptionsStruct.jl`、`src/SymbolicRegression.jl`、`test/runtests.jl`。
+- **Verification**：新增 parent-selection testset 13/13；完整 `test/runtests.jl` 通过；
+  tiny serial epsilon-lexicase + AFP search smoke 通过；`git diff --check` 通过。
+- **Research**：下载论文、哈希和调研结论见 `MySR_Dev/research/parent_selection/`。
+- **Unknown/Residual**：四臂 ablation 尚未在 Carbon/RS 运行；搜索质量、完整 HOF、复杂度
+  frontier、耗时和内存影响均未作结论。环境 `env_mysr` 通过授权的 `Pkg.instantiate()`
+  补齐了该 worktree `Project.toml` 的 Julia 依赖，生成的 `Manifest.toml` 未纳入源码提交。
