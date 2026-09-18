@@ -358,7 +358,7 @@
 - **Decision**：feature branch `feature/uncertainty-loss-v1` 增加 `Options.loss_preset`、`uncertainty_mode`、`robust_delta`、`student_nu`；continuous split-normal 作为 asymmetric Gaussian likelihood，likelihood 仅允许 `loss_scale=:linear`。
 - **Confirmed**：LossFunctions 覆盖三类 uncertainty 情境；不对称数组保存在 `Dataset.extra`，并在多输出与 `SubDataset` batch 中按索引切片。Julia wrapper 拒绝非正/非有限 uncertainty 和 weights 混用。
 - **Confirmed**：RNN-GPSR bootstrap 读取真实 `PopMember.cost`，与后续 feedback 使用同一 objective/cost contract；不改变 RNN 序列训练 loss。
-- **Verification**：MySRCore `Pkg.test()` 通过，uncertainty `9/9`；batch/Student-t/负 NLL/入口校验覆盖通过。未运行 benchmark 或 push；TypeSpec 前端残余独立记录。
+- **Historical verification (superseded 2026-09-18)**：当时 MySRCore `Pkg.test()` 和 uncertainty `9/9` 通过，但 TypeSpec worker 残余尚未修复；后续 hardening 已以 TypeSpec `51 passed`、`39 subtests passed` 取代该记录。
 
 ## 2026-09-18 - Loss and TypeSpec worker hardening
 
