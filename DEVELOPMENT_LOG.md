@@ -378,3 +378,20 @@
 - **Confirmed**：`@template_spec` now routes non-inner combiner calls through an AST-aware `_template_call`; runtime `ValidVector` semantics remain direct, while `get_tree` records custom operators in a temporary operator vocabulary. Invalid arity produces an explicit `ArgumentError` instead of tuple `BoundsError`.
 - **Verification**：MySRCore full `Pkg.test()` passed after the dispatch guard (`b8e3d63`), including custom combiner operator test `3/3`; MySR original `test_template_custom_combiner_infers_num_features` passed.
 - **Decision**：AST fallback only handles a `MethodError` raised by the operator dispatch itself (`MethodError.f === op`), so internal user-function errors are not hidden.
+
+## 2026-09-18 - Authorized Julia dependency recovery and bounded frontend run
+
+- **Decision**：为前端完整回归建立独立 Julia project/depot，不改写 `env_mysr` 的冻结
+  baseline；当前源码分支继续保留 `e966720`、`dbbec81`、`b42b77f` 的 loss/worker 修复。
+- **Confirmed**：隔离项目位于 `$CONDA_PREFIX/test_support/loss-audit-20260918/project`，
+  depot 位于同级 `depot`，通过官方 General registry、`JULIA_PKG_OFFLINE=false` 解析并
+  预编译 Bumper 0.6.0、Zygote 0.7.12、LoopVectorization 0.12.174、TensorBoardLogger
+  0.1.26、SlurmClusterManager 1.1.0 和 ClusterManagers 2.0.0；MySRCore path 指向
+  当前 checkout，Julia 版本为 1.10.3。
+- **Verification**：此前后端完整 `Pkg.test()`、uncertainty `15/15`、TypeSpec `51 passed`
+  和 RNN/migration `57 passed` 仍有效；前端 optional/notebook 聚焦回归 `8 passed`，
+  pytest collection 为 `405 tests`。WSL Docker Engine 29.8.1/buildx 0.37.1 与
+  `hello-world` 运行验证通过。
+- **Environment limitation**：用户因计算资源达到上限中止完整 `pytest -q mysr/test`；该
+  进程以 143 退出，未得到完整最终报告，不能据此宣称前端 405 项全通过。未跟踪的
+  `AGENTS.md` 保持原状。
