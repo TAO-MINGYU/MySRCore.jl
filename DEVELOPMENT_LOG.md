@@ -359,6 +359,20 @@
 - **Confirmed**：LossFunctions 覆盖三类 uncertainty 情境；不对称数组保存在 `Dataset.extra`，并在多输出与 `SubDataset` batch 中按索引切片。Julia wrapper 拒绝非正/非有限 uncertainty 和 weights 混用。
 - **Confirmed**：RNN-GPSR bootstrap 读取真实 `PopMember.cost`，与后续 feedback 使用同一 objective/cost contract；不改变 RNN 序列训练 loss。
 - **Verification**：MySRCore `Pkg.test()` 通过，uncertainty `9/9`；batch/Student-t/负 NLL/入口校验覆盖通过。未运行 benchmark 或 push；TypeSpec 前端残余独立记录。
+
+## 2026-09-18 - Loss and TypeSpec worker hardening
+
+- **Confirmed**：`src/LossFunctions.jl` 现在在 preset uncertainty 路径统一拒绝
+  `Dataset.weights`，对称模式缺少 `sigma` 明确抛出 `ArgumentError`；新增 `eval_cost`
+  回归验证负 likelihood 的 cost 仍为有限值。数值语义保持原有 preset 定义。
+- **Confirmed**：`src/Configure.jl` 接受 package-loaded worker 的 `filename=nothing`，并只在
+  local-include 分支要求 source filename；`src/TemplateExpressionMacro.jl` 改用确定性 FNV-1a
+  名称，避免 Julia 进程 salt 导致 worker 找不到 combiner；`src/TemplateExpression.jl`
+  支持参数化模板的结构 AST 构造。
+- **Verification**：`Pkg.test(;coverage=false)` 全部通过，uncertainty testset `15/15`；
+  MySR TypeSpec `51 passed`、`39 subtests passed`；提交 `e966720`。
+- **Residual/Unknown**：本轮没有远程正式 benchmark；远端 Carbon 仅执行独立 smoke。未跟踪
+  `AGENTS.md` 保持未跟踪，未 push。
 ## 2026-09-14 - Multi-input custom combiner AST support
 
 - **Confirmed**：`@template_spec` now routes non-inner combiner calls through an AST-aware `_template_call`; runtime `ValidVector` semantics remain direct, while `get_tree` records custom operators in a temporary operator vocabulary. Invalid arity produces an explicit `ArgumentError` instead of tuple `BoundsError`.
