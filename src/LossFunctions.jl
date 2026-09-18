@@ -122,6 +122,11 @@ function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOpt
     preset = options.loss_preset
     mode = options.uncertainty_mode
     weights = dataset.weights
+    if mode != :none && weights !== nothing
+        throw(ArgumentError(
+            "Measurement uncertainty cannot be combined with observation weights."
+        ))
+    end
     if mode == :asymmetry
         sigma_minus, sigma_plus = _measurement_uncertainty(dataset, mode)
         preset = preset == :default ? :asymmetric_gaussian_nll : preset
@@ -152,28 +157,27 @@ function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOpt
         return sum(values) / length(values)
     elseif mode == :symmetry
         sigma = _measurement_uncertainty(dataset, mode)
-        if sigma !== nothing
-            values = similar(prediction)
-            for i in eachindex(prediction)
-                residual = (prediction[i] - target[i]) / sigma[i]
-                values[i] = if preset == :gaussian_nll
-                    residual^2 / 2 + log(sigma[i]) + log(2pi) / 2
-                elseif preset in (:default, :l2)
-                    residual^2
-                elseif preset == :l1
-                    abs(residual)
-                elseif preset == :huber
-                    _huber_value(residual, options.robust_delta)
-                elseif preset == :pseudo_huber
-                    _pseudo_huber_value(residual, options.robust_delta)
-                elseif preset == :log_cosh
-                    logcosh(residual)
-                else
-                    throw(ArgumentError("Loss preset $(preset) is incompatible with symmetric uncertainty."))
-                end
+        sigma === nothing && throw(ArgumentError("symmetry requires sigma."))
+        values = similar(prediction)
+        for i in eachindex(prediction)
+            residual = (prediction[i] - target[i]) / sigma[i]
+            values[i] = if preset == :gaussian_nll
+                residual^2 / 2 + log(sigma[i]) + log(2pi) / 2
+            elseif preset in (:default, :l2)
+                residual^2
+            elseif preset == :l1
+                abs(residual)
+            elseif preset == :huber
+                _huber_value(residual, options.robust_delta)
+            elseif preset == :pseudo_huber
+                _pseudo_huber_value(residual, options.robust_delta)
+            elseif preset == :log_cosh
+                logcosh(residual)
+            else
+                throw(ArgumentError("Loss preset $(preset) is incompatible with symmetric uncertainty."))
             end
-            return sum(values) / length(values)
         end
+        return sum(values) / length(values)
     end
 
     values = similar(prediction)

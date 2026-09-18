@@ -727,17 +727,22 @@ function DE.get_tree(ex::TemplateExpression{<:Any,<:Any,<:Any,E}) where {E}
     variable_expressions = [
         with_contents(example_inner_ex, variable_tree) for variable_tree in variable_trees
     ]
-    if has_params(ex)
-        throw(
-            ArgumentError(
-                "`get_tree` is not implemented for TemplateExpression with parameters"
-            ),
+    metadata = get_metadata(ex)
+    combined = if has_params(ex)
+        # Keep the current parameter values in the combiner while building the
+        # structural AST.  Calls that mix a parameter value with a composable
+        # expression are captured by `_template_call` as temporary operators;
+        # the stored parameters and the runtime evaluation path are unchanged.
+        combine(
+            metadata.structure,
+            tree_contents,
+            metadata.parameters::NamedTuple,
+            variable_expressions,
         )
+    else
+        combine(metadata.structure, tree_contents, variable_expressions)
     end
-
-    return DE.get_tree(
-        combine(get_metadata(ex).structure, tree_contents, variable_expressions)
-    )
+    return DE.get_tree(combined)
 end
 
 # `::Type{IET}` keeps IET as a static parameter inside the closure; a runtime

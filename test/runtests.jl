@@ -75,6 +75,13 @@ end
     )
     negative_loss = SR.LossFunctionsModule.eval_loss(expr, negative_dataset, asym_options)
     @test negative_loss < 0
+    negative_cost, returned_loss = SR.LossFunctionsModule.eval_cost(
+        negative_dataset,
+        expr,
+        asym_options,
+    )
+    @test returned_loss == negative_loss
+    @test isfinite(negative_cost)
     symmetric_dataset = SR.Dataset(
         X,
         y;
@@ -96,6 +103,16 @@ end
         default_plugins=(),
     )
     @test SR.LossFunctionsModule.eval_loss(expr, SR.Dataset(X, y), no_uncertainty_options) ≈ 1.0
+    @test_throws ArgumentError SR.LossFunctionsModule.eval_loss(
+        expr,
+        SR.Dataset(X, y; extra=NamedTuple()),
+        symmetric_options,
+    )
+    @test_throws ArgumentError SR.LossFunctionsModule.eval_loss(
+        expr,
+        SR.Dataset(X, y; weights=[1.0, 1.0], extra=(sigma=[1.0, 1.0],)),
+        symmetric_options,
+    )
     @test_throws ArgumentError SR.Options(
         uncertainty_mode=:asymmetry,
         loss_preset=:huber,
