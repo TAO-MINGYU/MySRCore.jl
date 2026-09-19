@@ -60,6 +60,9 @@ end
         default_plugins=(),
     )
     @test SR.LossFunctionsModule.eval_loss(expr, asym_dataset, robust_options) ≈ 0.078125
+    robust_case_losses = SR.LossFunctionsModule.eval_case_losses(expr, asym_dataset, robust_options)
+    @test SR.LossFunctionsModule.eval_loss(expr, asym_dataset, robust_options) ≈
+        sum(robust_case_losses) / length(robust_case_losses)
     student_options = SR.Options(
         binary_operators=(+,),
         unary_operators=(),
@@ -70,6 +73,9 @@ end
         default_plugins=(),
     )
     @test isfinite(SR.LossFunctionsModule.eval_loss(expr, asym_dataset, student_options))
+    student_case_losses = SR.LossFunctionsModule.eval_case_losses(expr, asym_dataset, student_options)
+    @test SR.LossFunctionsModule.eval_loss(expr, asym_dataset, student_options) ≈
+        sum(student_case_losses) / length(student_case_losses)
     negative_dataset = SR.Dataset(
         zeros(1, 2),
         zeros(2);
@@ -98,6 +104,13 @@ end
         default_plugins=(),
     )
     @test isfinite(SR.LossFunctionsModule.eval_loss(expr, symmetric_dataset, symmetric_options))
+    symmetric_case_losses = SR.LossFunctionsModule.eval_case_losses(
+        expr,
+        symmetric_dataset,
+        symmetric_options,
+    )
+    @test SR.LossFunctionsModule.eval_loss(expr, symmetric_dataset, symmetric_options) ≈
+        sum(symmetric_case_losses) / length(symmetric_case_losses)
     no_uncertainty_options = SR.Options(
         binary_operators=(+,),
         unary_operators=(),
