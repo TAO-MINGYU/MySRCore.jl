@@ -492,3 +492,21 @@
   snapshot 回归通过。没有执行实际性能 benchmark。
 - **Unknown**：当前同步粒度为 population round；surrogate 的 evaluations 节省、吞吐和
   恢复率仍需 matched benchmark，不能从本轮测试推出性能提升。
+
+## 2026-09-19 - Sync canonical surrogate main into parent-selection worktree
+
+- **Decision**：将 canonical `main` 的 surrogate、uncertainty-loss、worker-path 和 TypeSpec
+  改动合入 `worktree/parent-selection-20260918`，并保留 ParentSelection、epsilon-lexicase
+  和 AFP 生存策略；不修改 canonical `main`、其他 worktree 或用户未跟踪文件。
+- **Confirmed**：合并提交为 `092c4a0`；备份引用为
+  `backup/pre-surrogate-parent-selection-sync-20260919`。`SymbolicRegression.jl` 同时
+  include/export `ParentSelection.jl` 与 `Surrogate.jl`；Options 同时保留两套配置契约。
+- **Confirmed**：为避免 uncertainty/loss preset 与普通 per-case L2 误配，epsilon-lexicase
+  在非默认 loss preset 或 uncertainty mode 下明确回退 scalar tournament，并返回
+  `reason=:nonstandard_loss`。
+- **Verification**：env_mysr + Julia 1.10.3 + 隔离可写 depot 下完整 `Pkg.test()` 通过；
+  parent-selection testset `15/15`，surrogate/快照测试 `10/10`、`2/2`、`4/4`、`2/2`，
+  其余既有测试全部通过。surrogate + epsilon-lexicase + AFP 串行组合搜索成功；
+  `git diff --check` 通过。
+- **Unknown**：完整搜索质量、HOF frontier、evaluations、耗时和资源收益仍需匹配 benchmark，
+  本次集成测试不构成性能结论。
