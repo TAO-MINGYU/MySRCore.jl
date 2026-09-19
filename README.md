@@ -90,7 +90,7 @@ prediction, did_succeed = eval_tree_array(tree, X, options)
 | Evaluation | Fast expression evaluation with explicit success flags for invalid numerical results. |
 | Complexity control | Complexity scoring and Pareto-frontier maintenance for interpretable model selection. |
 | Constant optimization | Backend-owned optimization of numeric constants in candidate expressions. |
-| Surrogate-assisted evaluation | Optional local KNN gating of expensive candidate evaluations; disabled by default and trained only from true evaluations. |
+| Surrogate-assisted evaluation | Optional local KNN gating of expensive candidate evaluations; disabled by default, trained only from true evaluations, and synchronized between populations through immutable round snapshots. |
 | Dimensional analysis | Static dimension inference and hard candidate checks for constrained formula types. |
 | Initialization | User guesses and optional RNN-GPSR proposal callbacks before formal search. |
 | Julia integration | Direct Julia API plus compatibility with the MySR Python frontend through JuliaPkg. |
