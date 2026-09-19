@@ -47,6 +47,8 @@ end
     asym_loss = SR.LossFunctionsModule.eval_loss(expr, asym_dataset, asym_options)
     @test isfinite(asym_loss)
     @test asym_loss > 0
+    asym_case_losses = SR.LossFunctionsModule.eval_case_losses(expr, asym_dataset, asym_options)
+    @test asym_loss ≈ sum(asym_case_losses) / length(asym_case_losses)
     batched_asym_dataset = SR.batch(asym_dataset, [2])
     @test isfinite(SR.LossFunctionsModule.eval_loss(expr, batched_asym_dataset, asym_options))
     robust_options = SR.Options(
@@ -185,7 +187,9 @@ end
         batching=false,
         default_plugins=(),
     )
-    @test SR.parent_selection_diagnostic(uncertainty_options, dataset).reason == :nonstandard_loss
+    uncertainty_diagnostic = SR.parent_selection_diagnostic(uncertainty_options, dataset)
+    @test uncertainty_diagnostic.effective == :epsilon_lexicase
+    @test uncertainty_diagnostic.reason == :supported
     expr = SR.parse_expression(
         "x1";
         operators=options.operators,
@@ -195,6 +199,60 @@ end
     case_losses = SR.LossFunctionsModule.eval_case_losses(expr, dataset, options)
     @test case_losses isa Vector{Float64}
     @test length(case_losses) == dataset.n
+
+    uncertainty_dataset = SR.Dataset(
+        reshape(Float64[1, 2, 3], 1, :),
+        [0.0, 2.0, 1.0];
+        extra=(sigma=Float64[1.0, 2.0, 4.0],),
+    )
+    uncertainty_case_losses = SR.LossFunctionsModule.eval_case_losses(
+        expr,
+        uncertainty_dataset,
+        uncertainty_options,
+    )
+    uncertainty_loss = SR.LossFunctionsModule.eval_loss(
+        expr,
+        uncertainty_dataset,
+        uncertainty_options,
+    )
+    @test uncertainty_case_losses ≈ [1.0, 0.0, 0.25]
+    @test uncertainty_loss ≈ sum(uncertainty_case_losses) / length(uncertainty_case_losses)
+
+    preset_options = SR.Options(
+        parent_selection=:epsilon_lexicase,
+        loss_preset=:l1,
+        batching=false,
+        default_plugins=(),
+    )
+    preset_diagnostic = SR.parent_selection_diagnostic(preset_options, dataset)
+    @test preset_diagnostic.effective == :epsilon_lexicase
+    @test preset_diagnostic.reason == :supported
+    preset_case_losses = SR.LossFunctionsModule.eval_case_losses(expr, dataset, preset_options)
+    preset_loss = SR.LossFunctionsModule.eval_loss(expr, dataset, preset_options)
+    @test preset_loss ≈ sum(preset_case_losses) / length(preset_case_losses)
+
+    weighted_dataset = SR.Dataset(
+        reshape(Float64[1, 2, 3], 1, :),
+        [0.0, 2.0, 1.0];
+        weights=[2.0, 1.0, 3.0],
+    )
+    weighted_case_losses = SR.LossFunctionsModule.eval_case_losses(
+        expr,
+        weighted_dataset,
+        preset_options,
+    )
+    weighted_loss = SR.LossFunctionsModule.eval_loss(expr, weighted_dataset, preset_options)
+    @test weighted_case_losses ≈ [2.0, 0.0, 6.0]
+    @test weighted_loss ≈ sum(weighted_case_losses) / sum(weighted_dataset.weights)
+
+    custom_options = SR.Options(
+        parent_selection=:epsilon_lexicase,
+        loss_function=(tree, dataset, options) -> 0.0,
+        batching=false,
+        default_plugins=(),
+    )
+    @test SR.parent_selection_diagnostic(custom_options, dataset).reason ==
+        :custom_aggregate_loss
 end
 
 @testset "Opt-in surrogate gate" begin

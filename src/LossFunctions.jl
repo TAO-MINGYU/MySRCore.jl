@@ -118,7 +118,7 @@ function _aggregate_values(values, weights)
     return sum(values .* weights) / sum(weights)
 end
 
-function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOptions)
+function _preset_case_losses(prediction, target, dataset::Dataset, options::AbstractOptions)
     preset = options.loss_preset
     mode = options.uncertainty_mode
     weights = dataset.weights
@@ -153,8 +153,9 @@ function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOpt
             end
         end
         # Uncertainty is a likelihood scale, not a residual-dependent sample
-        # weight. Use a fixed N denominator so a sign change cannot alter it.
-        return sum(values) / length(values)
+        # weight. The aggregate uses a fixed N denominator so a sign change
+        # cannot alter it.
+        return values
     elseif mode == :symmetry
         sigma = _measurement_uncertainty(dataset, mode)
         sigma === nothing && throw(ArgumentError("symmetry requires sigma."))
@@ -177,7 +178,7 @@ function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOpt
                 throw(ArgumentError("Loss preset $(preset) is incompatible with symmetric uncertainty."))
             end
         end
-        return sum(values) / length(values)
+        return values
     end
 
     values = similar(prediction)
@@ -197,7 +198,12 @@ function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOpt
             throw(ArgumentError("Loss preset $(preset) requires a compatible uncertainty mode."))
         end
     end
-    return _aggregate_values(values, weights)
+    return values
+end
+
+function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOptions)
+    values = _preset_case_losses(prediction, target, dataset, options)
+    return _aggregate_values(values, dataset.weights)
 end
 
 function _loss(
@@ -343,10 +349,11 @@ end
 
 Evaluate an expression's loss contribution for every observation.  This is
 used by parent selectors that need the error vector rather than only the
-aggregate scalar loss.  Custom aggregate objectives and custom elementwise
-functions are deliberately unsupported here because their case semantics
-cannot be inferred safely; callers should fall back to scalar-cost selection
-in that situation.
+aggregate scalar loss.  Built-in loss presets, including uncertainty-aware
+presets, use the same per-case values as `eval_loss`.  Custom aggregate
+objectives and custom elementwise functions are deliberately unsupported here
+because their case semantics cannot be inferred safely; callers should fall
+back to scalar-cost selection in that situation.
 
 For weighted data, the returned values include the per-observation weight.
 The common normalization by `sum(weights)` is omitted because it is the same
@@ -371,6 +378,17 @@ function eval_case_losses(
     prediction, completion = eval_tree_dispatch(tree, dataset, options, eval_context)
     if !completion || isnothing(prediction)
         return fill(L(Inf), dataset.n)
+    end
+
+    if options.loss_preset != :default || options.uncertainty_mode != :none
+        preset_values = _preset_case_losses(prediction, dataset.y::AbstractArray, dataset, options)
+        if is_weighted(dataset)
+            return L[
+                L(dataset.weights[i]) * L(preset_values[i]) for
+                i in eachindex(preset_values, dataset.weights)
+            ]
+        end
+        return L[L(value) for value in preset_values]
     end
 
     errors = Vector{L}(undef, dataset.n)

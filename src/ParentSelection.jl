@@ -38,8 +38,6 @@ function parent_selection_diagnostic(
         return (; requested, effective=:tournament, reason=:custom_aggregate_loss)
     !isnothing(options.loss_function_expression) &&
         return (; requested, effective=:tournament, reason=:custom_expression_loss)
-    (options.loss_preset != :default || options.uncertainty_mode != :none) &&
-        return (; requested, effective=:tournament, reason=:nonstandard_loss)
     !(options.elementwise_loss isa SupervisedLoss) &&
         return (; requested, effective=:tournament, reason=:custom_elementwise_loss)
     return (; requested, effective=:epsilon_lexicase, reason=:supported)

@@ -416,8 +416,8 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     and so forth.
 - `parent_selection`: Parent-selection policy. `:tournament` preserves the
     current scalar-cost tournament; `:epsilon_lexicase` enables full-data
-    epsilon-lexicase selection when the configured loss supports per-case
-    evaluation.
+    epsilon-lexicase selection for built-in losses, including uncertainty-aware
+    presets, when batching and custom aggregate objectives are not enabled.
 - `survival_strategy`: Population-survival policy. `:regularized_evolution`
     preserves the current oldest-member replacement; `:age_fitness_pareto`
     applies Age-Fitness Pareto survival to the parent and offspring pool.
