@@ -360,6 +360,8 @@
 - **影响路径**：`src/Surrogate.jl`、`src/SymbolicRegression.jl`、`src/Options.jl`、
   `src/OptionsStruct.jl`、`src/Mutate.jl`、`src/Crossover.jl`、
   `src/RegularizedEvolution.jl`、`src/SingleIteration.jl`、`test/runtests.jl`。
+- **说明更新**：`README.md` 的能力表增加了默认关闭的 surrogate-assisted evaluation
+  入口说明。
 - **Verification**：env_mysr + Julia 1.10.3、临时可写 Julia depot 下，surrogate 单元
   测试 `10/10`（含默认关闭与参数校验），串行小搜索 smoke 成功；直接运行
   `include("test/runtests.jl")` 的 MySRCore 全部 testsets 通过，`git diff --check`
