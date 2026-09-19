@@ -5,14 +5,41 @@ using DynamicExpressions: AbstractExpression, AbstractExpressionNode, eval_tree_
 
 using ..CoreModule: AbstractOptions, Dataset
 
-"""
-Runtime data for the opt-in surrogate-assisted evaluator.
+"""Runtime data and immutable synchronization records for surrogate evaluation.
 
-The state is deliberately worker-local.  It is created at the beginning of an
-evolution dispatch and is never shared between populations or Julia workers.
-Only candidates which have passed the real evaluator are added to the training
-set, so the surrogate cannot train on its own predictions.
+Workers receive a read-only `SurrogateSnapshot`, create a local mutable state,
+and return only observations from real evaluations.  The head process merges
+those observations after a population round and sends the next snapshot to
+future dispatches.  Surrogate predictions therefore never enter either the
+training set or the Hall of Fame.
 """
+struct SurrogateSnapshot
+    probe_indices::Vector{Int}
+    features::Vector{Vector{Float64}}
+    costs::Vector{Float64}
+    losses::Vector{Float64}
+    max_samples::Int
+    generation::Int
+end
+
+"""True-evaluation observations produced by one worker dispatch."""
+struct SurrogateReport
+    output::Int
+    population::Int
+    iteration::Int
+    base_generation::Int
+    probe_indices::Vector{Int}
+    max_samples::Int
+    features::Vector{Vector{Float64}}
+    costs::Vector{Float64}
+    losses::Vector{Float64}
+    proposals::Int
+    true_evaluations::Int
+    predictions::Int
+    rejected::Int
+    model_failures::Int
+end
+
 mutable struct SurrogateState
     probe_indices::Vector{Int}
     features::Vector{Vector{Float64}}
@@ -24,6 +51,8 @@ mutable struct SurrogateState
     rejected::Int
     model_failures::Int
     max_samples::Int
+    base_generation::Int
+    seed_sample_count::Int
 end
 
 """The result of a cheap surrogate gate before an expensive evaluation."""
@@ -49,29 +78,56 @@ end
 @inline surrogate_enabled(options::AbstractOptions) =
     _option(options, :surrogate_enabled, false)::Bool
 
-function create_surrogate_state(dataset::Dataset, options::AbstractOptions)
+function create_surrogate_state(
+    dataset::Dataset,
+    options::AbstractOptions;
+    snapshot::Union{Nothing,SurrogateSnapshot}=nothing,
+)
     surrogate_enabled(options) || return nothing
     dataset.n > 0 || return nothing
 
-    requested = Int(_option(options, :surrogate_probe_size, 64))
-    requested >= 1 || throw(ArgumentError("`surrogate_probe_size` must be positive."))
-    probe_size = min(requested, dataset.n)
-    # Equally spaced probes are deterministic and cover the complete data
-    # domain without consuming the search RNG stream.
-    probe_indices = unique(round.(Int, range(1, dataset.n; length=probe_size)))
     max_samples = Int(_option(options, :surrogate_max_samples, 2048))
     max_samples >= 1 || throw(ArgumentError("`surrogate_max_samples` must be positive."))
+    if snapshot === nothing
+        requested = Int(_option(options, :surrogate_probe_size, 64))
+        requested >= 1 || throw(ArgumentError("`surrogate_probe_size` must be positive."))
+        probe_size = min(requested, dataset.n)
+        # Equally spaced probes are deterministic and cover the complete data
+        # domain without consuming the search RNG stream.
+        probe_indices = unique(round.(Int, range(1, dataset.n; length=probe_size)))
+        features = Vector{Float64}[]
+        costs = Float64[]
+        losses = Float64[]
+        generation = 0
+    else
+        all(1 <= index <= dataset.n for index in snapshot.probe_indices) ||
+            throw(DimensionMismatch("surrogate snapshot probe indices do not match dataset"))
+        probe_indices = copy(snapshot.probe_indices)
+        features = [copy(entry) for entry in snapshot.features]
+        costs = copy(snapshot.costs)
+        losses = copy(snapshot.losses)
+        generation = snapshot.generation
+        if length(features) > max_samples
+            first_index = length(features) - max_samples + 1
+            features = features[first_index:end]
+            costs = costs[first_index:end]
+            losses = losses[first_index:end]
+        end
+    end
+    seed_sample_count = length(features)
     return SurrogateState(
         probe_indices,
-        Vector{Float64}[],
-        Float64[],
-        Float64[],
+        features,
+        costs,
+        losses,
         0,
-        0,
+        seed_sample_count,
         0,
         0,
         0,
         max_samples,
+        generation,
+        seed_sample_count,
     )
 end
 
@@ -177,6 +233,100 @@ function observe_surrogate_member!(state::SurrogateState, member, dataset, optio
     features = surrogate_features(member.tree, dataset, options, state, complexity)
     observe_surrogate!(state, features, member.cost, member.loss)
     return nothing
+end
+
+"""Create a report containing only samples observed after snapshot seeding."""
+function surrogate_report(
+    state::Nothing;
+    output::Int,
+    population::Int,
+    iteration::Int,
+)
+    return nothing
+end
+function surrogate_report(
+    state::SurrogateState;
+    output::Int,
+    population::Int,
+    iteration::Int,
+)
+    first_new = state.seed_sample_count + 1
+    features = first_new <= length(state.features) ?
+        [copy(entry) for entry in state.features[first_new:end]] : Vector{Float64}[]
+    costs = first_new <= length(state.costs) ? copy(state.costs[first_new:end]) : Float64[]
+    losses = first_new <= length(state.losses) ? copy(state.losses[first_new:end]) : Float64[]
+    return SurrogateReport(
+        output,
+        population,
+        iteration,
+        state.base_generation,
+        copy(state.probe_indices),
+        state.max_samples,
+        features,
+        costs,
+        losses,
+        state.proposals,
+        state.true_evaluations - state.seed_sample_count,
+        state.predictions,
+        state.rejected,
+        state.model_failures,
+    )
+end
+
+"""Merge worker reports into a new immutable head-owned snapshot."""
+function merge_surrogate_reports(
+    snapshot::Union{Nothing,SurrogateSnapshot},
+    reports::AbstractVector{<:SurrogateReport};
+    generation::Int,
+)
+    isempty(reports) && return snapshot
+    first_report = first(reports)
+    probe_indices = snapshot === nothing ?
+        copy(first_report.probe_indices) : copy(snapshot.probe_indices)
+    max_samples = snapshot === nothing ?
+        first_report.max_samples : snapshot.max_samples
+    features = snapshot === nothing ? Vector{Float64}[] : [
+        copy(entry) for entry in snapshot.features
+    ]
+    costs = snapshot === nothing ? Float64[] : copy(snapshot.costs)
+    losses = snapshot === nothing ? Float64[] : copy(snapshot.losses)
+
+    # Reports can arrive one dispatch late when populations finish at different
+    # times.  De-duplicate exact observations before applying the FIFO bound.
+    for report in reports
+        length(report.features) == length(report.costs) == length(report.losses) ||
+            throw(DimensionMismatch("surrogate report sample arrays have different lengths"))
+        for index in eachindex(report.features, report.costs, report.losses)
+            feature = report.features[index]
+            cost = report.costs[index]
+            loss = report.losses[index]
+            duplicate = any(
+                existing_features == feature &&
+                existing_cost == cost &&
+                existing_loss == loss for
+                (existing_features, existing_cost, existing_loss) in
+                zip(features, costs, losses)
+            )
+            duplicate && continue
+            push!(features, copy(feature))
+            push!(costs, cost)
+            push!(losses, loss)
+        end
+    end
+    if length(features) > max_samples
+        first_index = length(features) - max_samples + 1
+        features = features[first_index:end]
+        costs = costs[first_index:end]
+        losses = losses[first_index:end]
+    end
+    return SurrogateSnapshot(
+        probe_indices,
+        features,
+        costs,
+        losses,
+        max_samples,
+        generation,
+    )
 end
 
 """Decide whether a candidate receives the full cost evaluation."""

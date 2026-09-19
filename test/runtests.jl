@@ -222,6 +222,86 @@ end
     @test !isempty(hall.members)
 end
 
+@testset "Surrogate snapshot synchronization" begin
+    SR = MySRCore.SymbolicRegression
+    options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_probe_size=3,
+        surrogate_max_samples=4,
+    )
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    dataset = SR.Dataset(X, copy(vec(X)); variable_names=["x1"])
+    tree = SR.parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    state = SR.SurrogateModule.create_surrogate_state(dataset, options)
+    member = SR.PopMember(dataset, tree, options; deterministic=true)
+    SR.SurrogateModule.observe_surrogate_member!(state, member, dataset, options)
+    report = SR.SurrogateModule.surrogate_report(
+        state;
+        output=1,
+        population=1,
+        iteration=0,
+    )
+    snapshot = SR.SurrogateModule.merge_surrogate_reports(
+        nothing,
+        [report, report];
+        generation=1,
+    )
+    @test snapshot.generation == 1
+    @test length(snapshot.features) == 1
+    seeded = SR.SurrogateModule.create_surrogate_state(
+        dataset,
+        options;
+        snapshot=snapshot,
+    )
+    @test SR.surrogate_stats(seeded).samples == 1
+    @test seeded.base_generation == 1
+end
+
+@testset "Surrogate shared snapshot search integration" begin
+    SR = MySRCore.SymbolicRegression
+    X = reshape(Float64[1, 2, 3, 4, 5, 6], 1, :)
+    y = 2 .* vec(X) .+ 1
+    options = SR.Options(
+        binary_operators=(+, -, *),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_warmup_evals=2,
+        surrogate_probe_size=4,
+        surrogate_neighbors=2,
+        surrogate_max_samples=16,
+        surrogate_true_eval_fraction=0.5,
+        surrogate_exploration_fraction=0.0,
+        maxsize=8,
+        population_size=6,
+        populations=2,
+        tournament_selection_n=2,
+        ncycles_per_iteration=1,
+        crossover_probability=0.5,
+        should_optimize_constants=false,
+        save_to_file=false,
+        seed=2,
+    )
+    hall = SR.equation_search(
+        X,
+        y;
+        options=options,
+        niterations=1,
+        parallelism=:serial,
+        verbosity=0,
+    )
+    @test hall isa SR.HallOfFame
+    @test !isempty(hall.members)
+end
+
 @testset "Size-matched crossover" begin
     SR = MySRCore.SymbolicRegression
     MutationFunctions = SR.MutationFunctionsModule

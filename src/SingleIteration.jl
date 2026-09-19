@@ -37,9 +37,9 @@ function s_r_cycle(
     options::AbstractOptions,
     trace::MaybeTrace,
     plugin_states::Tuple,
-)::Tuple{
-    P,HallOfFame{T,L,N},Float64
-} where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:Population{T,L,N}}
+    surrogate_snapshot=nothing,
+    return_surrogate_state::Bool=false,
+) where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:Population{T,L,N}}
     best_examples_seen = HallOfFame(options, dataset)
     num_evals = 0.0
 
@@ -49,7 +49,11 @@ function s_r_cycle(
         dataset
     end
     eval_context = create_eval_context(batched_dataset, options, curmaxsize)
-    surrogate_state = create_surrogate_state(batched_dataset, options)
+    surrogate_state = create_surrogate_state(
+        batched_dataset,
+        options;
+        snapshot=surrogate_snapshot,
+    )
     if surrogate_state !== nothing
         for member in pop.members
             observe_surrogate_member!(surrogate_state, member, batched_dataset, options)
@@ -80,6 +84,9 @@ function s_r_cycle(
         end
     end
 
+    if return_surrogate_state
+        return (pop, best_examples_seen, num_evals, surrogate_state)
+    end
     return (pop, best_examples_seen, num_evals)
 end
 

@@ -427,3 +427,19 @@
 - **Confirmed**：本地 `main` 与 `origin/main` 均指向 `0da5bd9`；已删除本地及远程 `feature/loss-audit-quality-20260918`，并保留 `backup/pre-main-merge-loss-audit-20260918` 与 `backup/pre-feature-delete-loss-audit-20260918`。
 - **Verification**：合并后所有本轮修改的 Julia 文件及 `test/runtests.jl` 均通过 `Meta.parseall`，`git diff --check` 通过；`main` 已成功推送。
 - **Scope**：独立的 `worktrees/parent-selection/MySRCore.jl` 及其 `worktree/parent-selection-20260918` 分支未修改、未删除。
+
+## 2026-09-19 - Cross-population surrogate snapshot synchronization
+
+- **Decision**：surrogate state 采用跨 population 的只读 snapshot 同步；每轮所有
+  population 报告真实新样本后，由主搜索循环合并成下一轮 snapshot。worker 不共享可变
+  surrogate state，也不把预测值写入 HOF。
+- **Confirmed**：`SurrogateSnapshot`、`SurrogateReport`、报告去重/有界 FIFO 合并，以及
+  `SearchState` 的每输出 snapshot/pending-round bookkeeping 已接入 `s_r_cycle`、warmup
+  和主 dispatch。旧的三元组 worker 输出接口保持默认兼容，报告作为第六字段可选返回。
+- **修改路径**：`src/Surrogate.jl`、`src/SingleIteration.jl`、`src/SearchUtils.jl`、
+  `src/SymbolicRegression.jl`、`test/runtests.jl`。
+- **Verification**：env_mysr、Julia 1.10.3、临时可写 depot 下，MySRCore 包级
+  `Pkg.test()` 全部通过；新增 snapshot synchronization 与两 population 串行共享
+  snapshot 回归通过。没有执行实际性能 benchmark。
+- **Unknown**：当前同步粒度为 population round；surrogate 的 evaluations 节省、吞吐和
+  恢复率仍需 matched benchmark，不能从本轮测试推出性能提升。
