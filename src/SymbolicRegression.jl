@@ -62,6 +62,7 @@ export Population,
     parent_selection_diagnostic,
     epsilon_lexicase_index,
     age_fitness_pareto_survivor_indices,
+    competitive_survivor_indices,
     profiled_options,
     s_r_cycle,
     calculate_pareto_frontier,
@@ -421,7 +422,8 @@ using .LossFunctionsModule:
 using .ParentSelectionModule:
     parent_selection_diagnostic,
     epsilon_lexicase_index,
-    age_fitness_pareto_survivor_indices
+    age_fitness_pareto_survivor_indices,
+    competitive_survivor_indices
 using .ConstantOptimizationModule:
     optimize_constants,
     get_constants_for_optimization,

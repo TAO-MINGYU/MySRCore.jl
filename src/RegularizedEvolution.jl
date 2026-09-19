@@ -11,6 +11,7 @@ using ..CoreModule:
 using ..PopulationModule: Population, best_of_sample
 using ..ParentSelectionModule:
     age_fitness_pareto_survivor_indices,
+    competitive_survivor_indices,
     make_parent_selection_context
 using ..HallOfFameModule: HallOfFame, update_hall_of_fame!, _update_hall_of_fame_unchecked!
 using ..ComplexityModule: compute_complexity
@@ -140,7 +141,35 @@ function _replace_age_fitness_pareto!(pop, babies)
     return replacement_slots
 end
 
-function _replace_with_survival!(pop, babies, options::AbstractOptions)
+function _replace_competitive!(pop, babies, parent_refs)
+    n_babies = length(babies)
+    n_babies == 0 && return Int[]
+    n_babies <= pop.n || throw(ArgumentError("cannot insert more babies than population capacity"))
+
+    old_members = copy(pop.members)
+    candidates = vcat(old_members, collect(babies))
+    survivors = competitive_survivor_indices(old_members, babies, parent_refs, pop.n)
+    survivor_set = Set(survivors)
+    removed_slots = Int[i for i in 1:pop.n if !(i in survivor_set)]
+    surviving_babies = Int[
+        j for j in 1:n_babies if pop.n + j in survivor_set
+    ]
+    replacement_slots = fill(0, n_babies)
+    for (slot, baby_index) in zip(removed_slots, surviving_babies)
+        replacement_slots[baby_index] = slot
+    end
+
+    survivor_members = candidates[survivors]
+    for i in 1:pop.n
+        pop.members[i] = survivor_members[i]
+    end
+    return replacement_slots
+end
+
+function _replace_with_survival!(pop, babies, options::AbstractOptions; parent_refs=nothing)
+    if options.survival_strategy === :competitive_age_fitness
+        return _replace_competitive!(pop, babies, parent_refs)
+    end
     if options.survival_strategy === :age_fitness_pareto
         return _replace_age_fitness_pareto!(pop, babies)
     end
@@ -223,7 +252,9 @@ function reg_evol_cycle(
             should_replace = mutation_accepted || !options.skip_mutation_failures
             old_members = should_replace ? copy(pop.members) : nothing
             replacement_slots = should_replace ?
-                _replace_with_survival!(pop, [baby], options) : Int[]
+                _replace_with_survival!(
+                    pop, [baby], options; parent_refs=[allstar.ref]
+                ) : Int[]
             replacement_slot = isempty(replacement_slots) ? 0 : first(replacement_slots)
 
             trace_mutation_attempts!(
@@ -278,7 +309,12 @@ function reg_evol_cycle(
             end
 
             old_members = copy(pop.members)
-            replacement_slots = _replace_with_survival!(pop, [baby1, baby2], options)
+            replacement_slots = _replace_with_survival!(
+                pop,
+                [baby1, baby2],
+                options;
+                parent_refs=[allstar1.ref, allstar2.ref],
+            )
             oldest1 = replacement_slots[1]
             oldest2 = replacement_slots[2]
 

@@ -164,6 +164,10 @@ end
         survival_strategy=:age_fitness_pareto,
         default_plugins=(),
     ).parent_selection == :epsilon_lexicase
+    @test SR.Options(
+        survival_strategy=:competitive_age_fitness,
+        default_plugins=(),
+    ).survival_strategy == :competitive_age_fitness
     @test_throws ArgumentError SR.Options(parent_selection=:unknown)
     @test_throws ArgumentError SR.Options(survival_strategy=:unknown)
 
@@ -180,6 +184,63 @@ end
     @test length(survivors) == 2
     @test 3 in survivors
     @test !(2 in survivors)
+
+    tree_options = SR.Options(default_plugins=())
+    tree_x = SR.parse_expression(
+        "x1";
+        operators=tree_options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    tree_sum = SR.parse_expression(
+        "x1 + x1";
+        operators=tree_options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    old_members = [
+        (tree=tree_x, cost=2.0, loss=2.0, birth=1, complexity=1, ref=11),
+        (tree=tree_sum, cost=3.0, loss=3.0, birth=2, complexity=3, ref=12),
+    ]
+    improving_child = (
+        tree=tree_x,
+        cost=1.0,
+        loss=1.0,
+        birth=3,
+        complexity=1,
+        ref=21,
+    )
+    competitive = SR.competitive_survivor_indices(
+        old_members,
+        [improving_child],
+        [11],
+        2,
+    )
+    @test length(competitive) == 2
+    @test 3 in competitive
+    @test !(1 in competitive)
+
+    rejected_child = (
+        tree=tree_sum,
+        cost=4.0,
+        loss=4.0,
+        birth=4,
+        complexity=3,
+        ref=22,
+    )
+    unchanged = SR.competitive_survivor_indices(
+        old_members,
+        [rejected_child],
+        [12],
+        2,
+    )
+    @test sort(unchanged) == [1, 2]
+    @test_throws ArgumentError SR.competitive_survivor_indices(
+        old_members,
+        [improving_child],
+        Int[],
+        2,
+    )
 
     dataset = SR.Dataset(reshape(Float64[1, 2, 3], 1, :), [1.0, 2.0, 3.0])
     options = SR.Options(

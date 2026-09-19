@@ -420,7 +420,9 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     presets, when batching and custom aggregate objectives are not enabled.
 - `survival_strategy`: Population-survival policy. `:regularized_evolution`
     preserves the current oldest-member replacement; `:age_fitness_pareto`
-    applies Age-Fitness Pareto survival to the parent and offspring pool.
+    applies Age-Fitness Pareto survival to the parent and offspring pool;
+    `:competitive_age_fitness` first compares each child with its parent,
+    then applies age-fitness survival with structural duplicate suppression.
 - `topn`: Number of equations to return to the host process, and to
     consider for the hall of fame.
 - `complexity_of_operators`: What complexity should be assigned to each operator,
@@ -1014,8 +1016,16 @@ $(OPTION_DESCRIPTIONS)
     @assert loss_scale in (:log, :linear) "`loss_scale` must be either log or linear"
     parent_selection in (:tournament, :epsilon_lexicase) ||
         throw(ArgumentError("`parent_selection` must be `:tournament` or `:epsilon_lexicase`."))
-    survival_strategy in (:regularized_evolution, :age_fitness_pareto) ||
-        throw(ArgumentError("`survival_strategy` must be `:regularized_evolution` or `:age_fitness_pareto`."))
+    survival_strategy in (
+        :regularized_evolution,
+        :age_fitness_pareto,
+        :competitive_age_fitness,
+    ) || throw(
+        ArgumentError(
+            "`survival_strategy` must be `:regularized_evolution`, `:age_fitness_pareto`, " *
+            "or `:competitive_age_fitness`."
+        ),
+    )
     loss_preset in (
         :default,
         :l1,

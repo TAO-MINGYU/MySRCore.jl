@@ -537,3 +537,29 @@
   `eval_case_losses`/aggregate 一致性回归，并覆盖普通 weighted preset 的 case vector。
 - **Verification**：更新后的完整 `Pkg.test(; coverage=false)` 通过；uncertainty testset
   `19/19`，parent-selection testset `24/24`，其余既有 testsets 全部通过。
+
+## 2026-09-19 - Add opt-in competitive age-fitness survival
+
+- **Decision**：新增 `survival_strategy=:competitive_age_fitness`。每个 mutation/crossover
+  child 先按 `parent_ref` 与对应 parent 做局部 cost/complexity 比较；通过的 child 与旧
+  population 合并后，按 AFP 的 cost/recency 压力筛选，并以 operator/feature structural
+  fingerprint 去重；默认策略仍为 `:regularized_evolution`。
+- **Confirmed**：失败 mutation、surrogate 拒绝和不优于 parent 的 child 不会替换旧 member；
+  population 容量保持不变，trace 的 replacement slot 只记录真正发生的替换。新增
+  `competitive_survivor_indices` 作为可测试的 survivor-pool helper。
+- **影响路径**：`src/ParentSelection.jl`、`src/RegularizedEvolution.jl`、`src/Options.jl`、
+  `src/SymbolicRegression.jl`、`test/runtests.jl`。
+- **Verification**：新增 parent/survival 测试 30/30；competitive survival serial search、
+  uncertainty + epsilon-lexicase + surrogate + competitive survival 两条 smoke 成功。
+  复杂度 tie-break 调整后的完整回归将在本条实现结束前复跑。
+- **Unknown**：新替换策略是否提高 HOF 恢复率、测试误差、结构多样性或 evaluations，仍需
+  固定任务、seed、budget 的匹配 benchmark；当前测试不构成性能结论。
+
+## 2026-09-19 - Final competitive survival regression verification
+
+- **Confirmed**：复杂度-aware AFP tie-break 调整后，完整 `test/runtests.jl` 仍全部通过；其中
+  parent-selection testset 为 `30/30`，uncertainty preset、surrogate、migration、RNN-GPSR、
+  dimensional 和 template testsets 均通过。
+- **Verification**：使用 `env_mysr`、Julia 1.10.3 和隔离可写 depot
+  `/tmp/mysr-parent-survival-julia-depot`；`git diff --check` 通过。
+- **Unknown**：未运行大规模搜索或远程 benchmark；新策略的质量与资源收益仍未知。

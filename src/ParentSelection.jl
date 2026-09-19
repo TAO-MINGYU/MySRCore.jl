@@ -3,6 +3,7 @@ module ParentSelectionModule
 using Random: AbstractRNG, default_rng, rand, randperm
 using Statistics: median
 using DispatchDoctor: @unstable
+using DynamicExpressions: AbstractExpression, AbstractExpressionNode, get_child, get_tree
 using LossFunctions: SupervisedLoss
 
 using ..CoreModule:
@@ -168,7 +169,11 @@ end
            (cost_a < cost_b || age_a > age_b)
 end
 
-function _afp_worse_index(members, active::Vector{Int})
+function _afp_worse_index(
+    members,
+    active::Vector{Int};
+    prefer_simple::Bool=false,
+)
     worst = first(active)
     worst_dominance = -1
     for candidate in active
@@ -178,12 +183,19 @@ function _afp_worse_index(members, active::Vector{Int})
         )
         candidate_cost = _afp_cost(members[candidate])
         worst_cost = _afp_cost(members[worst])
+        same_rank = dominance_count == worst_dominance
+        same_cost = candidate_cost == worst_cost
+        same_age = members[candidate].birth == members[worst].birth
+        candidate_complexity = _member_complexity(members[candidate])
+        worst_complexity = _member_complexity(members[worst])
+        complexity_worse = candidate_complexity > worst_complexity
+        complexity_equal = candidate_complexity == worst_complexity
         should_replace = dominance_count > worst_dominance ||
-            (dominance_count == worst_dominance && candidate_cost > worst_cost) ||
-            (dominance_count == worst_dominance && candidate_cost == worst_cost &&
-             members[candidate].birth < members[worst].birth) ||
-            (dominance_count == worst_dominance && candidate_cost == worst_cost &&
-             members[candidate].birth == members[worst].birth && candidate > worst)
+            (same_rank && candidate_cost > worst_cost) ||
+            (same_rank && same_cost && members[candidate].birth < members[worst].birth) ||
+            (same_rank && same_cost && same_age &&
+             ((prefer_simple && complexity_worse) ||
+              ((!prefer_simple || complexity_equal) && candidate > worst)))
         if should_replace
             worst = candidate
             worst_dominance = dominance_count
@@ -197,14 +209,181 @@ end
 `birth` is MySRCore's monotonic creation order.  Larger values are younger,
 so the two Pareto objectives are lower scalar cost and greater recency.
 """
-function age_fitness_pareto_survivor_indices(members::AbstractVector, capacity::Int)
+function age_fitness_pareto_survivor_indices(
+    members::AbstractVector,
+    capacity::Int;
+    prefer_simple::Bool=false,
+)
     0 <= capacity <= length(members) ||
         throw(ArgumentError("AFP capacity must be between zero and pool size"))
     active = collect(eachindex(members))
     while length(active) > capacity
-        deleteat!(active, findfirst(==(_afp_worse_index(members, active)), active))
+        deleteat!(
+            active,
+            findfirst(
+                ==(_afp_worse_index(members, active; prefer_simple=prefer_simple)),
+                active,
+            ),
+        )
     end
     return active
+end
+
+@inline function _member_complexity(member)
+    try
+        return getfield(member, :complexity)
+    catch
+        return typemax(Int)
+    end
+end
+
+@inline function _member_ref(member)
+    try
+        return getfield(member, :ref)
+    catch
+        return nothing
+    end
+end
+
+"""Return a hash for the operator/feature shape of an expression tree."""
+function _survival_structural_hash(tree::AbstractExpressionNode)
+    value = hash(tree.degree)
+    if tree.degree == 0
+        value = hash(tree.constant, value)
+        value = hash(tree.constant ? :constant : tree.feature, value)
+        return value
+    end
+    value = hash(tree.op, value)
+    for child_index in 1:tree.degree
+        value = hash(_survival_structural_hash(get_child(tree, child_index)), value)
+    end
+    return value
+end
+
+_survival_structural_hash(expression::AbstractExpression) =
+    _survival_structural_hash(get_tree(expression))
+
+@inline function _survival_structural_hash(member)
+    return _survival_structural_hash(member.tree)
+end
+
+@inline function _candidate_preferred(a, b, index_a::Int, index_b::Int)
+    cost_a, cost_b = _afp_cost(a), _afp_cost(b)
+    cost_a < cost_b && return true
+    cost_a > cost_b && return false
+
+    complexity_a = _member_complexity(a)
+    complexity_b = _member_complexity(b)
+    complexity_a < complexity_b && return true
+    complexity_a > complexity_b && return false
+
+    # Keep the existing member for an exact structural/cost tie.  This avoids
+    # replacing a parent by a newly-created copy when a mutation failed.
+    return index_a < index_b
+end
+
+function _child_wins_parent(child, parent)
+    child_cost, parent_cost = _afp_cost(child), _afp_cost(parent)
+    child_cost < parent_cost && return true
+    child_cost > parent_cost && return false
+
+    child_complexity = _member_complexity(child)
+    parent_complexity = _member_complexity(parent)
+    child_complexity < parent_complexity && return true
+    child_complexity > parent_complexity && return false
+
+    # An equal-cost copy of the parent is not an evolutionary improvement.
+    return _survival_structural_hash(child) != _survival_structural_hash(parent)
+end
+
+"""
+    competitive_survivor_indices(old_members, babies, parent_refs, capacity)
+
+Build the parent-plus-eligible-offspring pool used by the competitive age/
+fitness survival strategy.  Each child must first beat the parent identified by
+its reference.  The eligible pool is then de-duplicated by operator/feature
+shape and reduced with age-fitness Pareto survival.  `parent_refs === nothing`
+disables the local gate and is useful for callers that do not retain lineage.
+
+The returned indices address `vcat(old_members, babies)` and contain
+`capacity` entries when the old population itself has at least that many
+members.
+"""
+function competitive_survivor_indices(
+    old_members::AbstractVector,
+    babies::AbstractVector,
+    parent_refs,
+    capacity::Int,
+)
+    n_old = length(old_members)
+    n_babies = length(babies)
+    0 <= capacity <= n_old + n_babies ||
+        throw(ArgumentError("competitive survival capacity must be between zero and pool size"))
+    parent_refs === nothing || length(parent_refs) == n_babies ||
+        throw(ArgumentError("parent_refs must contain one entry per baby"))
+
+    candidates = vcat(old_members, collect(babies))
+    eligible = collect(1:n_old)
+    for baby_index in 1:n_babies
+        include_baby = true
+        if parent_refs !== nothing
+            parent_ref = parent_refs[baby_index]
+            parent_slot = findfirst(
+                member -> _member_ref(member) == parent_ref,
+                old_members,
+            )
+            if parent_slot !== nothing
+                include_baby = _child_wins_parent(
+                    candidates[n_old + baby_index], old_members[parent_slot]
+                )
+            end
+        end
+        include_baby && push!(eligible, n_old + baby_index)
+    end
+
+    capacity == 0 && return Int[]
+
+    # Keep only the best representative of each structural shape before AFP.
+    representatives = Dict{UInt,Int}()
+    duplicate_indices = Int[]
+    for candidate_index in eligible
+        signature = _survival_structural_hash(candidates[candidate_index])
+        representative = get(representatives, signature, 0)
+        if representative == 0
+            representatives[signature] = candidate_index
+        elseif _candidate_preferred(
+            candidates[candidate_index], candidates[representative], candidate_index, representative
+        )
+            push!(duplicate_indices, representative)
+            representatives[signature] = candidate_index
+        else
+            push!(duplicate_indices, candidate_index)
+        end
+    end
+
+    # Hash-table iteration order is not a search policy.  Restore candidate
+    # order before AFP so deterministic searches do not depend on hash layout.
+    representative_indices = sort!(collect(values(representatives)))
+    if length(representative_indices) >= capacity
+        representative_members = candidates[representative_indices]
+        survivor_local = age_fitness_pareto_survivor_indices(
+            representative_members, capacity; prefer_simple=true
+        )
+        return representative_indices[survivor_local]
+    end
+
+    # A small population may not contain enough unique shapes.  Fill the
+    # remaining slots with the best duplicate representatives so population
+    # size remains invariant.
+    sort!(duplicate_indices; lt=(a, b) -> _candidate_preferred(
+        candidates[a], candidates[b], a, b
+    ))
+    survivors = copy(representative_indices)
+    for candidate_index in duplicate_indices
+        length(survivors) >= capacity && break
+        push!(survivors, candidate_index)
+    end
+    return survivors
 end
 
 end
