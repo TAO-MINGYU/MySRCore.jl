@@ -186,10 +186,14 @@ function _afp_worse_index(
         same_rank = dominance_count == worst_dominance
         same_cost = candidate_cost == worst_cost
         same_age = members[candidate].birth == members[worst].birth
-        candidate_complexity = _member_complexity(members[candidate])
-        worst_complexity = _member_complexity(members[worst])
-        complexity_worse = candidate_complexity > worst_complexity
-        complexity_equal = candidate_complexity == worst_complexity
+        complexity_worse = false
+        complexity_equal = true
+        if prefer_simple
+            candidate_complexity = _member_complexity(members[candidate])
+            worst_complexity = _member_complexity(members[worst])
+            complexity_worse = candidate_complexity > worst_complexity
+            complexity_equal = candidate_complexity == worst_complexity
+        end
         should_replace = dominance_count > worst_dominance ||
             (same_rank && candidate_cost > worst_cost) ||
             (same_rank && same_cost && members[candidate].birth < members[worst].birth) ||
