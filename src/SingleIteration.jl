@@ -17,6 +17,7 @@ using ..PopMemberModule: generate_reference
 using ..PopulationModule: Population, finalize_costs
 using ..HallOfFameModule: HallOfFame, update_hall_of_fame!
 using ..RegularizedEvolutionModule: reg_evol_cycle
+using ..SurrogateModule: create_surrogate_state, observe_surrogate_member!
 using ..LossFunctionsModule: create_eval_context, eval_cost
 using ..ConstantOptimizationModule: optimize_constants
 using ..DimensionalAnalysisModule:
@@ -36,9 +37,9 @@ function s_r_cycle(
     options::AbstractOptions,
     trace::MaybeTrace,
     plugin_states::Tuple,
-)::Tuple{
-    P,HallOfFame{T,L,N},Float64
-} where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:Population{T,L,N}}
+    surrogate_snapshot=nothing,
+    return_surrogate_state::Bool=false,
+) where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:Population{T,L,N}}
     best_examples_seen = HallOfFame(options, dataset)
     num_evals = 0.0
 
@@ -48,6 +49,16 @@ function s_r_cycle(
         dataset
     end
     eval_context = create_eval_context(batched_dataset, options, curmaxsize)
+    surrogate_state = create_surrogate_state(
+        batched_dataset,
+        options;
+        snapshot=surrogate_snapshot,
+    )
+    if surrogate_state !== nothing
+        for member in pop.members
+            observe_surrogate_member!(surrogate_state, member, batched_dataset, options)
+        end
+    end
 
     for cycle_idx in 1:ncycles
         strictmap(options.plugins, plugin_states) do plugin, pstate
@@ -62,6 +73,7 @@ function s_r_cycle(
             plugin_states,
             best_seen=best_examples_seen,
             eval_context,
+            surrogate_state=surrogate_state,
         )
         num_evals += tmp_num_evals
         update_hall_of_fame!(best_examples_seen, pop.members, batched_dataset, options)
@@ -72,6 +84,9 @@ function s_r_cycle(
         end
     end
 
+    if return_surrogate_state
+        return (pop, best_examples_seen, num_evals, surrogate_state)
+    end
     return (pop, best_examples_seen, num_evals)
 end
 

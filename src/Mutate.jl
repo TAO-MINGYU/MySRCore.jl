@@ -74,6 +74,11 @@ using ..DimensionalAnalysisModule:
     dimensional_scale_coefficient,
     dimensional_scale_identity
 using ..ConstantOptimizationModule: optimize_constants
+using ..SurrogateModule:
+    SurrogateState,
+    consider_surrogate!,
+    observe_surrogate!,
+    surrogate_features
 using ..TracingModule:
     trace_identity_mutation!, trace_mutation_result!, trace_mutation_type!
 
@@ -305,6 +310,7 @@ end
     plugin_states::Tuple,
     eval_context=nothing,
     population_for_backsolve=nothing,
+    surrogate_state::Union{Nothing,SurrogateState}=nothing,
 )::Tuple{
     P,Bool,Float64
 } where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:AbstractPopMember{T,L,N}}
@@ -344,6 +350,7 @@ end
         plugin_states,
         eval_context,
         population_for_backsolve,
+        surrogate_state,
         num_evals,
     )
 end
@@ -363,6 +370,7 @@ function _next_generation(
     plugin_states::Tuple,
     eval_context,
     population_for_backsolve,
+    surrogate_state::Union{Nothing,SurrogateState},
     num_evals::Float64,
 )::Tuple{
     P,Bool,Float64
@@ -469,6 +477,25 @@ function _next_generation(
                     num_evals,
                 )
             end
+            if surrogate_state !== nothing
+                immediate_features = try
+                    surrogate_features(
+                        immediate_member.tree,
+                        dataset,
+                        options,
+                        surrogate_state,
+                        getfield(immediate_member, :complexity),
+                    )
+                catch
+                    nothing
+                end
+                observe_surrogate!(
+                    surrogate_state,
+                    immediate_features,
+                    immediate_member.cost,
+                    immediate_member.loss,
+                )
+            end
             _fire_on_mutation_end!(
                 options,
                 plugin_states,
@@ -526,8 +553,49 @@ function _next_generation(
         )
     end
 
-    after_cost, after_loss = eval_cost(dataset, tree, options; eval_context)
+    after_size = compute_complexity(tree, options)
+    surrogate_decision = consider_surrogate!(
+        surrogate_state,
+        tree,
+        dataset,
+        options,
+        after_size,
+        before_cost,
+    )
+    if !surrogate_decision.evaluate
+        trace_mutation_result!(tmp_trace, "reject", "surrogate_rejected")
+        _fire_on_mutation_end!(
+            options,
+            plugin_states,
+            mutation_choice,
+            MutationEvent(false, before_cost, nothing, before_loss, nothing, mutation_idx),
+            dataset,
+        )
+        return (
+            create_child(
+                member,
+                member.tree,
+                before_cost,
+                before_loss,
+                options;
+                parent_ref=parent_ref,
+                mutation_choice=mutation_choice,
+            ),
+            false,
+            num_evals,
+        )
+    end
+
+    after_cost, after_loss = eval_cost(
+        dataset, tree, options; complexity=after_size, eval_context
+    )
     num_evals += dataset_fraction(dataset)
+    observe_surrogate!(
+        surrogate_state,
+        surrogate_decision.features,
+        after_cost,
+        after_loss,
+    )
 
     if isnan(after_cost)
         trace_mutation_result!(tmp_trace, "reject", "nan_loss")

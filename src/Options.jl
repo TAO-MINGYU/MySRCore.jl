@@ -316,6 +316,28 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     the full dataset for up to 1,000 rows, 128 rows for fewer than 5,000 rows,
     256 rows for fewer than 50,000 rows, and 512 rows otherwise. An explicit
     value is capped at the dataset size.
+- `surrogate_enabled`: Enable the opt-in local surrogate gate for candidate
+    cost evaluations. It is disabled by default, and only candidates that pass
+    the true evaluator are added to the surrogate training set.
+- `surrogate_model`: Surrogate model family. The first implementation supports
+    `:knn`, a distance-weighted k-nearest-neighbor model over probe predictions
+    and expression complexity.
+- `surrogate_warmup_evals`: Number of true candidate evaluations required
+    before the surrogate may make a rejection decision.
+- `surrogate_true_eval_fraction`: Minimum fraction of proposed candidates that
+    must continue through the true evaluator.
+- `surrogate_exploration_fraction`: Probability of evaluating a candidate even
+    when the local prediction is sufficiently confident.
+- `surrogate_uncertainty_scale`: Relative uncertainty threshold above which a
+    candidate is evaluated by the true objective.
+- `surrogate_reject_margin`: Relative cost margin used when comparing a
+    surrogate prediction with the parent candidate.
+- `surrogate_probe_size`: Number of deterministic data rows used to construct
+    the phenotype vector for the local model.
+- `surrogate_neighbors`: Maximum number of neighboring true evaluations used
+    by the KNN predictor.
+- `surrogate_max_samples`: Maximum number of true evaluations retained in the
+    bounded local training set.
 - `elementwise_loss`: What elementwise loss function to use. Can be one of
     the following losses, or any other loss of type
     `SupervisedLoss`. You can also pass a function that takes
@@ -755,6 +777,16 @@ $(OPTION_DESCRIPTIONS)
     ## 11. Performance and Parallelization:
     batching::Union{Bool,Symbol,Nothing}=nothing,
     batch_size::Union{Nothing,Integer}=nothing,
+    surrogate_enabled::Bool=false,
+    surrogate_model::Symbol=:knn,
+    surrogate_warmup_evals::Integer=32,
+    surrogate_true_eval_fraction::Real=0.25,
+    surrogate_exploration_fraction::Real=0.15,
+    surrogate_uncertainty_scale::Real=0.25,
+    surrogate_reject_margin::Real=0.05,
+    surrogate_probe_size::Integer=64,
+    surrogate_neighbors::Integer=8,
+    surrogate_max_samples::Integer=2048,
     turbo::Bool=false,
     bumper::Bool=false,
     autodiff_backend::Union{AbstractADType,Symbol,Nothing}=nothing,
@@ -1355,6 +1387,31 @@ $(OPTION_DESCRIPTIONS)
         throw(ArgumentError("`batch_size` must be at least 1."))
     batch_size = batch_size === nothing ? nothing : Int(batch_size)
 
+    surrogate_model in (:knn,) ||
+        throw(ArgumentError("`surrogate_model` must be `:knn`."))
+    surrogate_warmup_evals >= 1 ||
+        throw(ArgumentError("`surrogate_warmup_evals` must be positive."))
+    for (name, value) in (
+        (:surrogate_true_eval_fraction, surrogate_true_eval_fraction),
+        (:surrogate_exploration_fraction, surrogate_exploration_fraction),
+    )
+        isfinite(value) && 0 <= value <= 1 ||
+            throw(ArgumentError("`$name` must be finite and in [0, 1]."))
+    end
+    for (name, value) in (
+        (:surrogate_uncertainty_scale, surrogate_uncertainty_scale),
+        (:surrogate_reject_margin, surrogate_reject_margin),
+    )
+        isfinite(value) && value >= 0 ||
+            throw(ArgumentError("`$name` must be finite and non-negative."))
+    end
+    surrogate_probe_size >= 1 ||
+        throw(ArgumentError("`surrogate_probe_size` must be positive."))
+    surrogate_neighbors >= 1 ||
+        throw(ArgumentError("`surrogate_neighbors` must be positive."))
+    surrogate_max_samples >= 1 ||
+        throw(ArgumentError("`surrogate_max_samples` must be positive."))
+
     formula_type = if formula_type isa AbstractString
         Symbol(formula_type)
     else
@@ -1424,6 +1481,16 @@ $(OPTION_DESCRIPTIONS)
         perturbation_factor,
         batching,
         batch_size,
+        surrogate_enabled,
+        surrogate_model,
+        Int(surrogate_warmup_evals),
+        Float64(surrogate_true_eval_fraction),
+        Float64(surrogate_exploration_fraction),
+        Float64(surrogate_uncertainty_scale),
+        Float64(surrogate_reject_margin),
+        Int(surrogate_probe_size),
+        Int(surrogate_neighbors),
+        Int(surrogate_max_samples),
         _resolved_mutations,
         _resolved_crossovers,
         crossover_probability,
