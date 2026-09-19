@@ -17,6 +17,7 @@ using ..PopMemberModule: generate_reference
 using ..PopulationModule: Population, finalize_costs
 using ..HallOfFameModule: HallOfFame, update_hall_of_fame!
 using ..RegularizedEvolutionModule: reg_evol_cycle
+using ..SurrogateModule: create_surrogate_state, observe_surrogate_member!
 using ..LossFunctionsModule: create_eval_context, eval_cost
 using ..ConstantOptimizationModule: optimize_constants
 using ..DimensionalAnalysisModule:
@@ -48,6 +49,12 @@ function s_r_cycle(
         dataset
     end
     eval_context = create_eval_context(batched_dataset, options, curmaxsize)
+    surrogate_state = create_surrogate_state(batched_dataset, options)
+    if surrogate_state !== nothing
+        for member in pop.members
+            observe_surrogate_member!(surrogate_state, member, batched_dataset, options)
+        end
+    end
 
     for cycle_idx in 1:ncycles
         strictmap(options.plugins, plugin_states) do plugin, pstate
@@ -62,6 +69,7 @@ function s_r_cycle(
             plugin_states,
             best_seen=best_examples_seen,
             eval_context,
+            surrogate_state=surrogate_state,
         )
         num_evals += tmp_num_evals
         update_hall_of_fame!(best_examples_seen, pop.members, batched_dataset, options)

@@ -3,6 +3,8 @@ module SymbolicRegression
 # Types
 export Population,
     PopMember,
+    SurrogateState,
+    SurrogateDecision,
     HallOfFame,
     Options,
     IslandProfile,
@@ -92,6 +94,7 @@ export Population,
     default_mutations,
     plugin_mutations,
     plugin_crossovers,
+    surrogate_stats,
 
     #Operators
     plus,
@@ -258,6 +261,7 @@ using DispatchDoctor: @stable, @unstable
     include("MutationFunctions.jl")
     include("LossFunctions.jl")
     include("PopMember.jl")
+    include("Surrogate.jl")
     include("ConstantOptimization.jl")
     include("Population.jl")
     include("HallOfFame.jl")
@@ -414,6 +418,14 @@ using .ConstantOptimizationModule:
     extract_optimizable_gradient
 using .PopMemberModule:
     AbstractPopMember, PopMember, reset_birth!, popmember_type, expression_type
+using .SurrogateModule:
+    SurrogateState,
+    SurrogateDecision,
+    create_surrogate_state,
+    observe_surrogate!,
+    observe_surrogate_member!,
+    consider_surrogate!,
+    surrogate_stats
 using .CoreModule.UtilsModule: get_birth_order
 using .PopulationModule: Population, best_sub_pop, best_of_sample
 using .HallOfFameModule:

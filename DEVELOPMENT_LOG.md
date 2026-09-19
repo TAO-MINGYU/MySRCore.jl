@@ -346,6 +346,28 @@
 
 - **Decision**：将 `Options` 内部旧式 `OperatorEnum(; binary_operators=..., unary_operators=...)` 调用改为当前 pair-based 构造器，保持 operator 顺序、helper-function 和旧算子清理语义不变。
 - **Verification**：完整 `Pkg.test("MySRCore")` 通过；原 DynamicExpressions 构造器弃用提示不再出现。
+
+## 2026-09-19 - Isolated surrogate-assisted evaluation worktree
+
+- **Decision**：按用户要求，从本地 MySR 与 MySRCore.jl 的 `main` 分别建立成对隔离
+  worktree；本次实现只写入 `worktrees/surrogate/`，不触碰
+  `worktrees/parent-selection/`。工作分支为 `worktree/surrogate-20260918`，两仓库
+  均保留 `backup/pre-surrogate-worktree-20260918`。
+- **Confirmed**：MySRCore 新增 opt-in `SurrogateState`/`SurrogateDecision`，使用固定
+  probe phenotype（表达式 probe 输出 + complexity）的距离加权 KNN；只有真实
+  `eval_cost` 通过的候选进入有界训练集，预测不写入 Hall of Fame。变异和 crossover
+  在真实 loss 前执行保守门控，默认 `surrogate_enabled=false`，因此旧配置保持原路径。
+- **影响路径**：`src/Surrogate.jl`、`src/SymbolicRegression.jl`、`src/Options.jl`、
+  `src/OptionsStruct.jl`、`src/Mutate.jl`、`src/Crossover.jl`、
+  `src/RegularizedEvolution.jl`、`src/SingleIteration.jl`、`test/runtests.jl`。
+- **Verification**：env_mysr + Julia 1.10.3、临时可写 Julia depot 下，surrogate 单元
+  测试 `10/10`（含默认关闭与参数校验），串行小搜索 smoke 成功；直接运行
+  `include("test/runtests.jl")` 的 MySRCore 全部 testsets 通过，`git diff --check`
+  通过。`parent-selection` 两个 worktree 的 HEAD 保持 `86da100`/`890cf77`。
+- **Residual/Unknown**：surrogate state 当前在每个 `s_r_cycle` worker dispatch 内创建，
+  不跨外层 worker state 持久化；KNN 配置、拒绝策略对吞吐和恢复率的收益尚未经过匹配
+  benchmark，不能作性能提升结论。MySR Python 尚未新增 surrogate 公共参数，后续需单独
+  决定前端桥接契约。
 - **Residual**：编译阶段仍可能显示 DispatchDoctor/Julia 的 `@nospecialize` 参数数量提示，属于参数很多的 `Options` 包装实现，不是 DynamicExpressions 弃用 API。
 ## 2026-09-13 - Multi-agent Julia quality audit
 
