@@ -364,8 +364,9 @@
   入口说明。
 - **Verification**：env_mysr + Julia 1.10.3、临时可写 Julia depot 下，surrogate 单元
   测试 `10/10`（含默认关闭与参数校验），串行小搜索 smoke 成功；直接运行
-  `include("test/runtests.jl")` 的 MySRCore 全部 testsets 通过，`git diff --check`
-  通过。`parent-selection` 两个 worktree 的 HEAD 保持 `86da100`/`890cf77`。
+  `include("test/runtests.jl")` 和包级 `Pkg.test()` 的 MySRCore 全部 testsets 通过，
+  `git diff --check` 通过。`parent-selection` 两个 worktree 的 HEAD 保持
+  `86da100`/`890cf77`。
 - **Residual/Unknown**：surrogate state 当前在每个 `s_r_cycle` worker dispatch 内创建，
   不跨外层 worker state 持久化；KNN 配置、拒绝策略对吞吐和恢复率的收益尚未经过匹配
   benchmark，不能作性能提升结论。MySR Python 尚未新增 surrogate 公共参数，后续需单独
