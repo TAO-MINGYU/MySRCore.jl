@@ -530,3 +530,10 @@
 - **Unknown**：本次只验证选择路径、数值一致性和 bridge 可用性；匹配预算下的 HOF、泛化、
   evaluations、耗时和资源收益仍未知，不能据此作性能结论。
 - **Backup**：`backup/pre-uncertainty-lexicase-20260919` 保留修改前的 worktree HEAD。
+
+## 2026-09-19 - Follow-up preset case-vector regression coverage
+
+- **Confirmed**：补充 asymmetric Huber/Student-t 与 symmetric Gaussian NLL 的
+  `eval_case_losses`/aggregate 一致性回归，并覆盖普通 weighted preset 的 case vector。
+- **Verification**：更新后的完整 `Pkg.test(; coverage=false)` 通过；uncertainty testset
+  `19/19`，parent-selection testset `24/24`，其余既有 testsets 全部通过。
