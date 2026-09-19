@@ -510,3 +510,23 @@
   `git diff --check` 通过。
 - **Unknown**：完整搜索质量、HOF frontier、evaluations、耗时和资源收益仍需匹配 benchmark，
   本次集成测试不构成性能结论。
+
+## 2026-09-19 - Enable uncertainty-aware epsilon-lexicase parent selection
+
+- **Decision**：内置 `loss_preset` 与 `uncertainty_mode` 现在允许和
+  `parent_selection=:epsilon_lexicase` 同时使用；自定义聚合损失、无法推导逐样本语义的
+  自定义 elementwise loss，以及 batching 仍安全回退 scalar tournament。
+- **Confirmed**：`LossFunctions.jl` 抽取统一的逐样本 preset loss；`eval_loss` 的 aggregate
+  与 `eval_case_losses` 使用同一公式。对称/非对称 uncertainty、普通 built-in preset、
+  observation weights 和非有限候选均保持既有语义；uncertainty 与 observation weights
+  仍由现有校验互斥。
+- **修改路径**：`src/LossFunctions.jl`、`src/ParentSelection.jl`、`src/Options.jl`、
+  `test/runtests.jl`。
+- **Verification**：`env_mysr` + Julia 1.10.3 下完整 `Pkg.test(; coverage=false)` 通过；
+  uncertainty testset `16/16`，parent-selection testset `24/24`。实际
+  `uncertainty_mode=:symmetry` + `parent_selection=:epsilon_lexicase` 串行搜索成功；
+  临时独立 Julia Project 指向本 worktree 的 MySRCore 后，MySR Python bridge 的 uncertainty
+  + epsilon-lexicase fit smoke 成功（2 条 equations）。`git diff --check` 通过。
+- **Unknown**：本次只验证选择路径、数值一致性和 bridge 可用性；匹配预算下的 HOF、泛化、
+  evaluations、耗时和资源收益仍未知，不能据此作性能结论。
+- **Backup**：`backup/pre-uncertainty-lexicase-20260919` 保留修改前的 worktree HEAD。
