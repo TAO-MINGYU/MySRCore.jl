@@ -3,6 +3,10 @@ module SymbolicRegression
 # Types
 export Population,
     PopMember,
+    SurrogateState,
+    SurrogateDecision,
+    SurrogateSnapshot,
+    SurrogateReport,
     HallOfFame,
     Options,
     IslandProfile,
@@ -95,6 +99,7 @@ export Population,
     default_mutations,
     plugin_mutations,
     plugin_crossovers,
+    surrogate_stats,
 
     #Operators
     plus,
@@ -262,6 +267,7 @@ using DispatchDoctor: @stable, @unstable
     include("LossFunctions.jl")
     include("PopMember.jl")
     include("ParentSelection.jl")
+    include("Surrogate.jl")
     include("ConstantOptimization.jl")
     include("Population.jl")
     include("HallOfFame.jl")
@@ -426,6 +432,18 @@ using .ConstantOptimizationModule:
     extract_optimizable_gradient
 using .PopMemberModule:
     AbstractPopMember, PopMember, reset_birth!, popmember_type, expression_type
+using .SurrogateModule:
+    SurrogateState,
+    SurrogateDecision,
+    SurrogateSnapshot,
+    SurrogateReport,
+    create_surrogate_state,
+    observe_surrogate!,
+    observe_surrogate_member!,
+    consider_surrogate!,
+    surrogate_stats,
+    surrogate_report,
+    merge_surrogate_reports
 using .CoreModule.UtilsModule: get_birth_order
 using .PopulationModule: Population, best_sub_pop, best_of_sample
 using .HallOfFameModule:
@@ -518,6 +536,9 @@ which is useful for debugging and profiling.
     More iterations will improve the results.
 - `weights::Union{AbstractMatrix{T}, AbstractVector{T}, Nothing}=nothing`: Optionally
     weight the loss for each `y` by this value (same shape as `y`).
+- `sigma`, `sigma_minus`, `sigma_plus`: Optional positive measurement uncertainty
+    arrays. `sigma` is used by `uncertainty_mode=:symmetry`; the two side-specific
+    arrays are used by `uncertainty_mode=:asymmetry`. They have the same shape as `y`.
 - `options::AbstractOptions=Options()`: The options for the search, such as
     which operators to use, evolution hyperparameters, etc.
 - `variable_names::Union{Vector{String}, Nothing}=nothing`: The names
@@ -621,6 +642,9 @@ function equation_search(
     y::AbstractMatrix;
     niterations::Int=100,
     weights::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
+    sigma::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
+    sigma_minus::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
+    sigma_plus::Union{AbstractMatrix{T},AbstractVector{T},Nothing}=nothing,
     options::AbstractOptions=Options(),
     variable_names::Union{AbstractVector{String},Nothing}=nothing,
     display_variable_names::Union{AbstractVector{String},Nothing}=variable_names,
@@ -660,6 +684,44 @@ function equation_search(
         @assert length(weights) == length(y)
         weights = reshape(weights, size(y))
     end
+    for (name, values) in ((:sigma, sigma), (:sigma_minus, sigma_minus), (:sigma_plus, sigma_plus))
+        values === nothing && continue
+        length(values) == length(y) ||
+            throw(DimensionMismatch("$(name) must have the same number of entries as y."))
+        all(v -> isfinite(v) && v > zero(v), values) ||
+            throw(ArgumentError("$(name) values must be finite and strictly positive."))
+    end
+    if weights !== nothing && (sigma !== nothing || sigma_minus !== nothing || sigma_plus !== nothing)
+        throw(ArgumentError("`weights` cannot be combined with measurement uncertainty arrays."))
+    end
+    if options.uncertainty_mode == :symmetry && (sigma_minus !== nothing || sigma_plus !== nothing)
+        throw(ArgumentError("uncertainty_mode=:symmetry accepts `sigma`, not sigma_minus/sigma_plus."))
+    end
+    if options.uncertainty_mode == :symmetry && sigma === nothing
+        throw(ArgumentError("uncertainty_mode=:symmetry requires sigma."))
+    end
+    if options.uncertainty_mode == :asymmetry &&
+       (sigma_minus === nothing || sigma_plus === nothing)
+        throw(ArgumentError("uncertainty_mode=:asymmetry requires sigma_minus and sigma_plus."))
+    end
+    if options.uncertainty_mode == :none &&
+       (sigma !== nothing || sigma_minus !== nothing || sigma_plus !== nothing)
+        throw(ArgumentError("Measurement uncertainty arrays require uncertainty_mode=:symmetry or :asymmetry."))
+    end
+    if sigma !== nothing
+        sigma = reshape(sigma, size(y))
+    end
+    if sigma_minus !== nothing
+        sigma_minus = reshape(sigma_minus, size(y))
+    end
+    if sigma_plus !== nothing
+        sigma_plus = reshape(sigma_plus, size(y))
+    end
+
+    extra = merge(
+        extra,
+        (sigma=sigma, sigma_minus=sigma_minus, sigma_plus=sigma_plus),
+    )
 
     datasets = construct_datasets(
         X,
@@ -885,6 +947,10 @@ end
     ]
 
     seed_members = [Vector{PMType}() for j in 1:nout]
+    surrogate_snapshots = Union{Nothing,SurrogateSnapshot}[nothing for _ in 1:nout]
+    surrogate_round_reports = [
+        Dict{Int,Dict{Int,SurrogateReport}}() for _ in 1:nout
+    ]
 
     return SearchState{
         T,
@@ -915,6 +981,8 @@ end
         seed_members=seed_members,
         plugin_states=plugin_states,
         worker_plugin_states=worker_plugin_states,
+        surrogate_snapshots=surrogate_snapshots,
+        surrogate_round_reports=surrogate_round_reports,
     )
 end
 function _initialize_search!(
@@ -1013,6 +1081,7 @@ function _initialize_search!(
                             new_trace(options),
                             _seed_evals,
                             _worker_plugin_states,
+                            nothing,
                         )
                     end,
                     parallelism = ropt.parallelism,
@@ -1045,6 +1114,7 @@ function _initialize_search!(
                             new_trace(options),
                             _seed_evals + Float64(options.population_size),
                             _worker_plugin_states,
+                            nothing,
                         )
                     end,
                     parallelism = ropt.parallelism,
@@ -1070,7 +1140,7 @@ function _preserve_loaded_state!(
     HallType = HallOfFame{T,L,N,PM}
 
     for j in 1:nout, i in 1:(options.populations)
-        (pop, _, _, _, _) = extract_from_worker(
+        (pop, _, _, _, _, _) = extract_from_worker(
             state.worker_output[j][i],
             PopType,
             HallType,
@@ -1078,6 +1148,37 @@ function _preserve_loaded_state!(
             eltype(eltype(state.worker_plugin_states)),
         )
         state.last_pops[j][i] = copy(pop)
+    end
+    return nothing
+end
+
+"""Collect one worker report and publish a snapshot at a population barrier."""
+function _record_surrogate_report!(
+    state::AbstractSearchState,
+    report,
+    output::Int,
+    options::AbstractOptions,
+)
+    report === nothing && return nothing
+    report isa SurrogateReport ||
+        throw(ArgumentError("worker returned an invalid surrogate report"))
+    report.output == output ||
+        throw(ArgumentError("surrogate report output does not match worker slot"))
+    pending_by_iteration = state.surrogate_round_reports[output]
+    pending = get!(pending_by_iteration, report.iteration) do
+        Dict{Int,SurrogateReport}()
+    end
+    pending[report.population] = report
+    if length(pending) >= options.populations
+        reports = collect(values(pending))
+        snapshot = state.surrogate_snapshots[output]
+        next_generation = snapshot === nothing ? 1 : snapshot.generation + 1
+        state.surrogate_snapshots[output] = merge_surrogate_reports(
+            snapshot,
+            reports;
+            generation=next_generation,
+        )
+        delete!(pending_by_iteration, report.iteration)
     end
     return nothing
 end
@@ -1107,7 +1208,7 @@ function _warmup_search!(
         HallType = HallOfFame{T,L,N,PM}
         TraceStateType = typeof(state.trace_prototype)
 
-        (in_pop, _, _, initial_num_evals, worker_plugin_states) = extract_from_worker(
+        (in_pop, _, _, initial_num_evals, worker_plugin_states, _) = extract_from_worker(
             last_pop,
             PopType,
             HallType,
@@ -1127,6 +1228,7 @@ function _warmup_search!(
                     cur_maxsize,
                     plugin_states=worker_plugin_states,
                     initial_num_evals,
+                    surrogate_snapshot=state.surrogate_snapshots[j],
                 )::DefaultWorkerOutputType{
                     Population{T,L,N},
                     HallOfFame{T,L,N},
@@ -1211,7 +1313,7 @@ function _main_search_loop!(
         population_ready &= (state.cycles_remaining[j] > 0)
         if population_ready
             # Take the fetch operation from the channel since its ready
-            (cur_pop, best_seen, cur_trace, cur_num_evals, returned_plugin_states) =
+            (cur_pop, best_seen, cur_trace, cur_num_evals, returned_plugin_states, surrogate_report) =
                 if ropt.parallelism in
                     (
                     :multiprocessing, :multithreading
@@ -1231,6 +1333,7 @@ function _main_search_loop!(
             state.best_sub_pops[j][i] = best_sub_pop(cur_pop; topn=options.topn)
             write_trace(cur_trace, options.tracing_file)
             state.num_evals[j][i] += cur_num_evals
+            _record_surrogate_report!(state, surrogate_report, j, options)
             dataset = datasets[j]
             cur_maxsize = state.cur_maxsizes[j]
 
@@ -1320,6 +1423,7 @@ function _main_search_loop!(
                             ropt.verbosity,
                             cur_maxsize,
                             plugin_states=worker_plugin_states,
+                            surrogate_snapshot=state.surrogate_snapshots[j],
                         )
                     end,
                     parallelism = ropt.parallelism,
@@ -1475,12 +1579,13 @@ end
     cur_maxsize::Int,
     plugin_states::Tuple,
     initial_num_evals::Float64=0.0,
+    surrogate_snapshot=nothing,
 ) where {T,L,N}
     population_options = profiled_options(options, pop)
     trace = new_trace(population_options)
     trace_iteration_start!(trace, out, pop, iteration, in_pop, population_options)
     num_evals = initial_num_evals
-    out_pop, best_seen, evals_from_cycle = s_r_cycle(
+    out_pop, best_seen, evals_from_cycle, surrogate_state = s_r_cycle(
         dataset,
         in_pop,
         options.ncycles_per_iteration,
@@ -1489,6 +1594,8 @@ end
         options=population_options,
         trace=trace,
         plugin_states,
+        surrogate_snapshot=surrogate_snapshot,
+        return_surrogate_state=true,
     )
     num_evals += evals_from_cycle
     out_pop, evals_from_optimize = optimize_and_simplify_population(
@@ -1507,7 +1614,13 @@ end
             end
         end
     end
-    return (out_pop, best_seen, trace, num_evals, plugin_states)
+    report = surrogate_report(
+        surrogate_state;
+        output=out,
+        population=pop,
+        iteration=iteration,
+    )
+    return (out_pop, best_seen, trace, num_evals, plugin_states, report)
 end
 function _info_dump(
     state::AbstractSearchState,

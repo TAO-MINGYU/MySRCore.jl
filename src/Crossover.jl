@@ -23,6 +23,7 @@ using ..DimensionalAnalysisModule:
     dimensional_scale_coefficient,
     dimensional_scale_identity
 using ..MutateModule: _sample_mutation
+using ..SurrogateModule: consider_surrogate!, observe_surrogate!
 using ..TracingModule: trace_mutation_result!, trace_mutation_type!
 
 """
@@ -159,6 +160,7 @@ end
     trace::MaybeTrace=nothing,
     eval_context=nothing,
     plugin_states::Tuple=ntuple(Returns(nothing), length(options.plugins)),
+    surrogate_state=nothing,
 )::Tuple{P,P,Bool,Float64} where {T,L,D<:Dataset{T,L},N,P<:AbstractPopMember{T,L,N}}
     crossovers = options.crossovers
     # Skip sampling for a single entry so the default configuration consumes
@@ -179,6 +181,7 @@ end
         trace,
         eval_context,
         plugin_states,
+        surrogate_state,
     )
 end
 
@@ -192,6 +195,7 @@ function _crossover_generation(
     trace::MaybeTrace,
     eval_context,
     plugin_states::Tuple,
+    surrogate_state,
 )::Tuple{
     P,P,Bool,Float64
 } where {T,L,D<:Dataset{T,L},N,P<:AbstractPopMember{T,L,N},C<:AbstractCrossover}
@@ -234,6 +238,27 @@ function _crossover_generation(
         end
         num_tries += 1
     end
+    surrogate_decision1 = consider_surrogate!(
+        surrogate_state,
+        child_tree1,
+        dataset,
+        options,
+        afterSize1,
+        member1.cost,
+    )
+    surrogate_decision2 = consider_surrogate!(
+        surrogate_state,
+        child_tree2,
+        dataset,
+        options,
+        afterSize2,
+        member2.cost,
+    )
+    if !surrogate_decision1.evaluate || !surrogate_decision2.evaluate
+        trace_mutation_result!(trace, "reject", "surrogate_rejected")
+        return member1, member2, false, num_evals
+    end
+
     after_cost1, after_loss1 = eval_cost(
         dataset, child_tree1, options; complexity=afterSize1, eval_context
     )
@@ -241,6 +266,18 @@ function _crossover_generation(
         dataset, child_tree2, options; complexity=afterSize2, eval_context
     )
     num_evals += 2 * dataset_fraction(dataset)
+    observe_surrogate!(
+        surrogate_state,
+        surrogate_decision1.features,
+        after_cost1,
+        after_loss1,
+    )
+    observe_surrogate!(
+        surrogate_state,
+        surrogate_decision2.features,
+        after_cost2,
+        after_loss2,
+    )
 
     baby1 = create_child(
         (member1, member2),

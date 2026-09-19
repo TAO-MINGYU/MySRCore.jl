@@ -12,8 +12,6 @@ using ..CoreModule:
     sample_value,
     dimension_policy
 using ..CheckConstraintsModule: check_constraints
-using ..ComplexityModule: compute_complexity
-using ..LossFunctionsModule: eval_loss
 using ..MutationFunctionsModule: gen_random_tree_fixed_size
 using ..DimensionGenerationModule: gen_random_tree_dimensional
 using ..DimensionalAnalysisModule: unwrap_dimensional_scale
@@ -253,18 +251,23 @@ function _independent_training_corpus(
         tree = _valid_random_tree(dataset, T, options, nfeatures, maxsize, rng)
         tokens = _tree_tokens(tree, options, nfeatures)
         push!(sequences, tokens)
-        candidate_loss = try
-            Float64(eval_loss(tree, dataset, options))
+        # Constructing a temporary member uses the same eval_loss →
+        # loss_to_cost path as ordinary populations and later GPSR feedback.
+        # This keeps the RNN bootstrap target aligned with the backend's actual
+        # selection objective, including uncertainty-aware losses and parsimony.
+        candidate_cost = try
+            candidate_member = constructorof(options.popmember_type)(
+                dataset,
+                tree,
+                options;
+                parent=-1,
+                deterministic=options.deterministic,
+            )
+            _member_cost(candidate_member)
         catch
             Inf
         end
-        isfinite(candidate_loss) || (candidate_loss = 1.0e12)
-        # Keep complexity as a tiny tie-breaker while making the bootstrap
-        # primarily target-aware. One tree evaluation is charged to callers.
-        push!(
-            structural_costs,
-            candidate_loss + 1.0e-6 * compute_complexity(tree, options),
-        )
+        push!(structural_costs, candidate_cost)
     end
     length(sequences) >= 8 ||
         throw(ArgumentError("Unable to construct the RNN-GPSR bootstrap training corpus."))

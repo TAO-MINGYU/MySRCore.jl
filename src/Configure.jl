@@ -284,7 +284,7 @@ end
 
 function import_module_on_workers(
     procs,
-    filename::String,
+    filename::Union{String,Nothing},
     @nospecialize(worker_imports::Union{Vector{Symbol},Nothing}),
     verbosity,
 )
@@ -308,6 +308,9 @@ function import_module_on_workers(
             using MySRCore: SymbolicRegression
         end
     elseif included_as_local
+        filename === nothing && throw(ArgumentError(
+            "A source filename is required when SymbolicRegression is loaded locally."
+        ))
         quote
             include($filename)
             using .SymbolicRegression

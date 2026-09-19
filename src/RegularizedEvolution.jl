@@ -16,6 +16,7 @@ using ..HallOfFameModule: HallOfFame, update_hall_of_fame!, _update_hall_of_fame
 using ..ComplexityModule: compute_complexity
 using ..MutateModule: next_generation
 using ..CrossoverModule: crossover_generation
+using ..SurrogateModule: SurrogateState
 using ..TracingModule:
     new_trace,
     new_step_trace,
@@ -63,6 +64,7 @@ struct MutationStep{D,P,O,S,E,H,A,M,R}
     attempted_results::A
     attempted_members::M
     traced_steps::R
+    surrogate_state::Union{Nothing,SurrogateState}
 end
 
 function (step::MutationStep)(parent)
@@ -76,6 +78,7 @@ function (step::MutationStep)(parent)
         plugin_states=step.plugin_states,
         eval_context=step.eval_context,
         population_for_backsolve=step.population,
+        surrogate_state=step.surrogate_state,
     )
     attempt_id = isnothing(step.attempted_results) ? 1 : length(step.attempted_results) + 1
     result = MutationStepResult(member, accepted, attempt_id, num_evals)
@@ -155,6 +158,7 @@ function reg_evol_cycle(
     plugin_states::Tuple,
     best_seen::HallOfFame,
     eval_context=nothing,
+    surrogate_state::Union{Nothing,SurrogateState}=nothing,
 )::Tuple{P,Float64} where {T<:DATA_TYPE,L<:LOSS_TYPE,P<:Population{T,L}}
     num_evals = 0.0
     n_evol_cycles = ceil(Int, pop.n / options.tournament_selection_n)
@@ -180,6 +184,7 @@ function reg_evol_cycle(
         attempted_results,
         attempted_members,
         traced_steps,
+        surrogate_state,
     )
     wrapped_step = build_mutation_step(mutation_wrappers, base_step)
 
@@ -260,6 +265,7 @@ function reg_evol_cycle(
                 trace=crossover_trace,
                 plugin_states,
                 eval_context,
+                surrogate_state=surrogate_state,
             )
             num_evals += tmp_num_evals
             if crossover_accepted

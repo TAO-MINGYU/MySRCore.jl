@@ -36,6 +36,7 @@ using ..ConstantOptimizationModule: optimize_constants
 using ..ProgressBarsModule: WrappedProgressBar, manually_iterate!, barlen
 using ..ExpressionBuilderModule: strip_metadata
 using ..InterfaceDynamicExpressionsModule: takes_eval_context
+using ..SurrogateModule: SurrogateReport, SurrogateSnapshot
 
 function logging_callback! end
 
@@ -286,7 +287,8 @@ function assign_next_worker!(
     end
 end
 
-const DefaultWorkerOutputType{P,H,TR<:MaybeTrace,S<:Tuple} = Tuple{P,H,TR,Float64,S}
+"""Worker output with an optional surrogate observation report as its last field."""
+const DefaultWorkerOutputType{P,H,TR<:MaybeTrace,S<:Tuple} = Tuple{P,H,TR,Float64,S,Any}
 
 function get_worker_output_type(
     ::Val{PARALLELISM},
@@ -672,6 +674,10 @@ Base.@kwdef struct SearchState{
     seed_members::Vector{Vector{PM}}
     plugin_states::Vector{PluginStatesType}
     worker_plugin_states::Vector{Vector{WorkerPluginStatesType}}
+    # Head-owned, immutable surrogate snapshots and reports waiting for the
+    # corresponding population round to complete.
+    surrogate_snapshots::Vector{Union{Nothing,SurrogateSnapshot}}
+    surrogate_round_reports::Vector{Dict{Int,Dict{Int,SurrogateReport}}}
 end
 
 function save_to_file(

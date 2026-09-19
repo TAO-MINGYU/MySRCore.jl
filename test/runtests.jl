@@ -21,6 +21,119 @@ using Random: MersenneTwister
     @test_throws ArgumentError Dataset(X, [1.0, 2.0]; weights=[0.0, 0.0])
 end
 
+@testset "Uncertainty-aware loss presets" begin
+    SR = MySRCore.SymbolicRegression
+    X = reshape(Float64[1.0, -1.0], 1, :)
+    y = zeros(2)
+    expr = SR.parse_expression(
+        "x1";
+        operators=SR.Options(binary_operators=(+,), unary_operators=()).operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    asym_dataset = SR.Dataset(
+        X,
+        y;
+        extra=(sigma_minus=Float64[2.0, 2.0], sigma_plus=Float64[4.0, 4.0]),
+    )
+    asym_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_gaussian_nll,
+        loss_scale=:linear,
+        default_plugins=(),
+    )
+    asym_loss = SR.LossFunctionsModule.eval_loss(expr, asym_dataset, asym_options)
+    @test isfinite(asym_loss)
+    @test asym_loss > 0
+    batched_asym_dataset = SR.batch(asym_dataset, [2])
+    @test isfinite(SR.LossFunctionsModule.eval_loss(expr, batched_asym_dataset, asym_options))
+    robust_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_huber,
+        robust_delta=1.0,
+        default_plugins=(),
+    )
+    @test SR.LossFunctionsModule.eval_loss(expr, asym_dataset, robust_options) ≈ 0.078125
+    student_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_student_t_nll,
+        loss_scale=:linear,
+        student_nu=4.0,
+        default_plugins=(),
+    )
+    @test isfinite(SR.LossFunctionsModule.eval_loss(expr, asym_dataset, student_options))
+    negative_dataset = SR.Dataset(
+        zeros(1, 2),
+        zeros(2);
+        extra=(sigma_minus=Float64[0.1, 0.1], sigma_plus=Float64[0.1, 0.1]),
+    )
+    negative_loss = SR.LossFunctionsModule.eval_loss(expr, negative_dataset, asym_options)
+    @test negative_loss < 0
+    negative_cost, returned_loss = SR.LossFunctionsModule.eval_cost(
+        negative_dataset,
+        expr,
+        asym_options,
+    )
+    @test returned_loss == negative_loss
+    @test isfinite(negative_cost)
+    symmetric_dataset = SR.Dataset(
+        X,
+        y;
+        extra=(sigma=Float64[2.0, 2.0],),
+    )
+    symmetric_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        uncertainty_mode=:symmetry,
+        loss_preset=:gaussian_nll,
+        loss_scale=:linear,
+        default_plugins=(),
+    )
+    @test isfinite(SR.LossFunctionsModule.eval_loss(expr, symmetric_dataset, symmetric_options))
+    no_uncertainty_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        loss_preset=:l1,
+        default_plugins=(),
+    )
+    @test SR.LossFunctionsModule.eval_loss(expr, SR.Dataset(X, y), no_uncertainty_options) ≈ 1.0
+    @test_throws ArgumentError SR.LossFunctionsModule.eval_loss(
+        expr,
+        SR.Dataset(X, y; extra=NamedTuple()),
+        symmetric_options,
+    )
+    @test_throws ArgumentError SR.LossFunctionsModule.eval_loss(
+        expr,
+        SR.Dataset(X, y; weights=[1.0, 1.0], extra=(sigma=[1.0, 1.0],)),
+        symmetric_options,
+    )
+    @test_throws ArgumentError SR.Options(
+        uncertainty_mode=:asymmetry,
+        loss_preset=:huber,
+        default_plugins=(),
+    )
+    @test_throws ArgumentError SR.Options(
+        uncertainty_mode=:asymmetry,
+        loss_preset=:asymmetric_gaussian_nll,
+        default_plugins=(),
+    )
+    @test_throws ArgumentError SR.equation_search(
+        X,
+        y;
+        sigma_minus=[1.0, -1.0],
+        sigma_plus=[1.0, 1.0],
+        options=asym_options,
+        niterations=0,
+        parallelism=:serial,
+    )
+end
+
 @testset "MySRCore package identity" begin
     @test nameof(MySRCore) == :MySRCore
     @test isdefined(MySRCore, :Options)
@@ -66,6 +179,13 @@ end
         default_plugins=(),
     )
     @test SR.parent_selection_diagnostic(batched_options, dataset).reason == :batching_enabled
+    uncertainty_options = SR.Options(
+        parent_selection=:epsilon_lexicase,
+        uncertainty_mode=:symmetry,
+        batching=false,
+        default_plugins=(),
+    )
+    @test SR.parent_selection_diagnostic(uncertainty_options, dataset).reason == :nonstandard_loss
     expr = SR.parse_expression(
         "x1";
         operators=options.operators,
@@ -75,6 +195,168 @@ end
     case_losses = SR.LossFunctionsModule.eval_case_losses(expr, dataset, options)
     @test case_losses isa Vector{Float64}
     @test length(case_losses) == dataset.n
+end
+
+@testset "Opt-in surrogate gate" begin
+    SR = MySRCore.SymbolicRegression
+    @test !SR.Options(default_plugins=()).surrogate_enabled
+    @test SR.surrogate_stats(nothing).samples == 0
+    options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_warmup_evals=2,
+        surrogate_probe_size=3,
+        surrogate_neighbors=2,
+        surrogate_max_samples=8,
+    )
+    @test options.surrogate_enabled
+    @test options.surrogate_model == :knn
+    @test_throws ArgumentError SR.Options(surrogate_neighbors=0)
+    @test_throws ArgumentError SR.Options(surrogate_model=:invalid)
+
+    X = reshape(Float64[1.0, 2.0, 3.0, 4.0], 1, :)
+    y = copy(vec(X))
+    dataset = SR.Dataset(X, y; variable_names=["x1"])
+    tree = SR.parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    state = SR.SurrogateModule.create_surrogate_state(dataset, options)
+    member = SR.PopMember(dataset, tree, options; deterministic=true)
+    SR.SurrogateModule.observe_surrogate_member!(state, member, dataset, options)
+    @test SR.surrogate_stats(state).true_evaluations == 1
+    @test SR.surrogate_stats(state).samples == 1
+    decision = SR.SurrogateModule.consider_surrogate!(
+        state,
+        tree,
+        dataset,
+        options,
+        SR.compute_complexity(tree, options),
+        member.cost,
+    )
+    @test decision isa SR.SurrogateDecision
+    @test SR.surrogate_stats(state).proposals == 1
+end
+
+@testset "Surrogate search integration" begin
+    SR = MySRCore.SymbolicRegression
+    X = reshape(Float64[1, 2, 3, 4, 5, 6], 1, :)
+    y = 2 .* vec(X) .+ 1
+    options = SR.Options(
+        binary_operators=(+, -, *),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_warmup_evals=2,
+        surrogate_probe_size=4,
+        surrogate_neighbors=2,
+        surrogate_max_samples=16,
+        surrogate_true_eval_fraction=0.5,
+        surrogate_exploration_fraction=0.0,
+        maxsize=8,
+        population_size=8,
+        populations=1,
+        tournament_selection_n=2,
+        ncycles_per_iteration=2,
+        crossover_probability=0.5,
+        should_optimize_constants=false,
+        save_to_file=false,
+        seed=1,
+    )
+    hall = SR.equation_search(
+        X,
+        y;
+        options=options,
+        niterations=1,
+        parallelism=:serial,
+        verbosity=0,
+    )
+    @test hall isa SR.HallOfFame
+    @test !isempty(hall.members)
+end
+
+@testset "Surrogate snapshot synchronization" begin
+    SR = MySRCore.SymbolicRegression
+    options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_probe_size=3,
+        surrogate_max_samples=4,
+    )
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    dataset = SR.Dataset(X, copy(vec(X)); variable_names=["x1"])
+    tree = SR.parse_expression(
+        "x1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    state = SR.SurrogateModule.create_surrogate_state(dataset, options)
+    member = SR.PopMember(dataset, tree, options; deterministic=true)
+    SR.SurrogateModule.observe_surrogate_member!(state, member, dataset, options)
+    report = SR.SurrogateModule.surrogate_report(
+        state;
+        output=1,
+        population=1,
+        iteration=0,
+    )
+    snapshot = SR.SurrogateModule.merge_surrogate_reports(
+        nothing,
+        [report, report];
+        generation=1,
+    )
+    @test snapshot.generation == 1
+    @test length(snapshot.features) == 1
+    seeded = SR.SurrogateModule.create_surrogate_state(
+        dataset,
+        options;
+        snapshot=snapshot,
+    )
+    @test SR.surrogate_stats(seeded).samples == 1
+    @test seeded.base_generation == 1
+end
+
+@testset "Surrogate shared snapshot search integration" begin
+    SR = MySRCore.SymbolicRegression
+    X = reshape(Float64[1, 2, 3, 4, 5, 6], 1, :)
+    y = 2 .* vec(X) .+ 1
+    options = SR.Options(
+        binary_operators=(+, -, *),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_warmup_evals=2,
+        surrogate_probe_size=4,
+        surrogate_neighbors=2,
+        surrogate_max_samples=16,
+        surrogate_true_eval_fraction=0.5,
+        surrogate_exploration_fraction=0.0,
+        maxsize=8,
+        population_size=6,
+        populations=2,
+        tournament_selection_n=2,
+        ncycles_per_iteration=1,
+        crossover_probability=0.5,
+        should_optimize_constants=false,
+        save_to_file=false,
+        seed=2,
+    )
+    hall = SR.equation_search(
+        X,
+        y;
+        options=options,
+        niterations=1,
+        parallelism=:serial,
+        verbosity=0,
+    )
+    @test hall isa SR.HallOfFame
+    @test !isempty(hall.members)
 end
 
 @testset "Size-matched crossover" begin

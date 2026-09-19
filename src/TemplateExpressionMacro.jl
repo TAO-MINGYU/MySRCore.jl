@@ -4,6 +4,20 @@ using ..TemplateExpressionModule: _template_call
 
 const _TEMPLATE_CALL = GlobalRef(parentmodule(@__MODULE__).TemplateExpressionModule, :_template_call)
 
+# Julia's `hash` is intentionally salted per process.  Template combiner
+# functions are part of the serialized `TemplateStructure` type, so a name
+# derived from `hash` can differ between the head process and a worker even
+# when both evaluate identical source.  Use a small deterministic FNV-1a
+# digest instead; this keeps generated names stable without adding a runtime
+# dependency or changing the combiner's behavior.
+function _template_function_name(value)
+    digest = UInt64(0xcbf29ce484222325)
+    for byte in codeunits(repr(value))
+        digest = (digest ⊻ UInt64(byte)) * UInt64(0x100000001b3)
+    end
+    return Symbol(:__sr_template_, string(digest, base=16, pad=16))
+end
+
 """Rewrite combiner calls so custom functions can participate in AST building.
 
 Calls to inner expressions (for example `f(x1)`) must remain direct calls;
@@ -153,11 +167,9 @@ function template_spec(func, args...)
     func_body = _rewrite_template_calls(func_body, protected_calls)
 
     # For loading from checkpoint, or sharing across workers
-    function_hash = hash((function_keys, expr_names, func_args, func_body))
-
     # Create the TemplateStructure with or without parameters
     if isnothing(parameters)
-        function_name = Symbol(:__sr_template_, function_hash)
+        function_name = _template_function_name((function_keys, expr_names, func_args, func_body))
 
         quote
             TemplateExpressionSpec(
@@ -176,8 +188,9 @@ function template_spec(func, args...)
         param_names = [p.args[1] for p in parameters.args]
 
         # For loading from checkpoint, or sharing across workers
-        function_hash_with_params = hash((param_keys, param_names), function_hash)
-        function_name = Symbol(:__sr_template_, function_hash_with_params)
+        function_name = _template_function_name(
+            (function_keys, param_keys, expr_names, param_names, func_args, func_body)
+        )
 
         quote
             TemplateExpressionSpec(

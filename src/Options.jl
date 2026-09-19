@@ -316,6 +316,28 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     the full dataset for up to 1,000 rows, 128 rows for fewer than 5,000 rows,
     256 rows for fewer than 50,000 rows, and 512 rows otherwise. An explicit
     value is capped at the dataset size.
+- `surrogate_enabled`: Enable the opt-in local surrogate gate for candidate
+    cost evaluations. It is disabled by default, and only candidates that pass
+    the true evaluator are added to the surrogate training set.
+- `surrogate_model`: Surrogate model family. The first implementation supports
+    `:knn`, a distance-weighted k-nearest-neighbor model over probe predictions
+    and expression complexity.
+- `surrogate_warmup_evals`: Number of true candidate evaluations required
+    before the surrogate may make a rejection decision.
+- `surrogate_true_eval_fraction`: Minimum fraction of proposed candidates that
+    must continue through the true evaluator.
+- `surrogate_exploration_fraction`: Probability of evaluating a candidate even
+    when the local prediction is sufficiently confident.
+- `surrogate_uncertainty_scale`: Relative uncertainty threshold above which a
+    candidate is evaluated by the true objective.
+- `surrogate_reject_margin`: Relative cost margin used when comparing a
+    surrogate prediction with the parent candidate.
+- `surrogate_probe_size`: Number of deterministic data rows used to construct
+    the phenotype vector for the local model.
+- `surrogate_neighbors`: Maximum number of neighboring true evaluations used
+    by the KNN predictor.
+- `surrogate_max_samples`: Maximum number of true evaluations retained in the
+    bounded local training set.
 - `elementwise_loss`: What elementwise loss function to use. Can be one of
     the following losses, or any other loss of type
     `SupervisedLoss`. You can also pass a function that takes
@@ -371,6 +393,17 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
         and is ideal for traditional loss functions that are always positive.
     - `:linear`: Uses direct differences between losses. This mode handles any loss values (including negative)
         and is useful for custom loss functions, especially those based on likelihoods.
+- `loss_preset`: Optional built-in loss family. Supported values are `:default`, `:l1`,
+    `:l2`, `:huber`, `:pseudo_huber`, `:log_cosh`, `:gaussian_nll`,
+    `:asymmetric_gaussian_nll`, `:asymmetric_huber`, `:asymmetric_pseudo_huber`, and
+    `:asymmetric_student_t_nll`. `loss_scale` remains score scaling and does not take
+    logarithms of predictions or targets.
+- `uncertainty_mode`: `:none`, `:symmetry`, or `:asymmetry`. Symmetric mode reads
+    `dataset.extra.sigma`; asymmetric mode reads `dataset.extra.sigma_minus` and
+    `dataset.extra.sigma_plus`. The public `equation_search` wrapper accepts these
+    arrays directly.
+- `robust_delta`: Positive Huber/pseudo-Huber transition in standardized residual units.
+- `student_nu`: Positive degrees of freedom for the asymmetric Student-t preset.
 - `expression_spec::AbstractExpressionSpec`: A specification of what types of expressions to use in the
     search. For example, `ExpressionSpec()` (default). See `TemplateExpressionSpec` for structured
     expressions and learnable parameters.
@@ -703,6 +736,10 @@ $(OPTION_DESCRIPTIONS)
     ## 2. Setting the Search Size:
     ## 3. The Objective:
     loss_scale::Symbol=:log,
+    loss_preset::Symbol=:default,
+    uncertainty_mode::Symbol=:none,
+    robust_delta::Real=1.0,
+    student_nu::Real=4.0,
     ## 4. Working with Complexities:
     complexity_mapping::Union{Function,ComplexityMapping,Nothing}=nothing,
     use_frequency::Bool=true,
@@ -749,6 +786,16 @@ $(OPTION_DESCRIPTIONS)
     ## 11. Performance and Parallelization:
     batching::Union{Bool,Symbol,Nothing}=nothing,
     batch_size::Union{Nothing,Integer}=nothing,
+    surrogate_enabled::Bool=false,
+    surrogate_model::Symbol=:knn,
+    surrogate_warmup_evals::Integer=32,
+    surrogate_true_eval_fraction::Real=0.25,
+    surrogate_exploration_fraction::Real=0.15,
+    surrogate_uncertainty_scale::Real=0.25,
+    surrogate_reject_margin::Real=0.05,
+    surrogate_probe_size::Integer=64,
+    surrogate_neighbors::Integer=8,
+    surrogate_max_samples::Integer=2048,
     turbo::Bool=false,
     bumper::Bool=false,
     autodiff_backend::Union{AbstractADType,Symbol,Nothing}=nothing,
@@ -893,6 +940,10 @@ $(OPTION_DESCRIPTIONS)
         )
     end
 
+    custom_loss_provided = any(
+        !isnothing,
+        (elementwise_loss, loss_function, loss_function_expression),
+    )
     elementwise_loss = something(elementwise_loss, L2DistLoss())
 
     if complexity_mapping !== nothing
@@ -965,6 +1016,52 @@ $(OPTION_DESCRIPTIONS)
         throw(ArgumentError("`parent_selection` must be `:tournament` or `:epsilon_lexicase`."))
     survival_strategy in (:regularized_evolution, :age_fitness_pareto) ||
         throw(ArgumentError("`survival_strategy` must be `:regularized_evolution` or `:age_fitness_pareto`."))
+    loss_preset in (
+        :default,
+        :l1,
+        :l2,
+        :huber,
+        :pseudo_huber,
+        :log_cosh,
+        :gaussian_nll,
+        :asymmetric_gaussian_nll,
+        :asymmetric_huber,
+        :asymmetric_pseudo_huber,
+        :asymmetric_student_t_nll,
+    ) || throw(ArgumentError("Unsupported `loss_preset`: $(loss_preset)."))
+    uncertainty_mode in (:none, :symmetry, :asymmetry) ||
+        throw(ArgumentError("`uncertainty_mode` must be :none, :symmetry, or :asymmetry."))
+    isfinite(robust_delta) && robust_delta > 0 ||
+        throw(ArgumentError("`robust_delta` must be finite and positive."))
+    isfinite(student_nu) && student_nu > 0 ||
+        throw(ArgumentError("`student_nu` must be finite and positive."))
+    if uncertainty_mode == :asymmetry &&
+       loss_preset ∉ (:default, :asymmetric_gaussian_nll, :asymmetric_huber,
+        :asymmetric_pseudo_huber, :asymmetric_student_t_nll)
+        throw(ArgumentError("Asymmetry requires an asymmetric loss preset."))
+    end
+    if loss_preset == :gaussian_nll && uncertainty_mode != :symmetry
+        throw(ArgumentError("`gaussian_nll` requires uncertainty_mode=:symmetry."))
+    end
+    likelihood_preset = loss_preset in
+        (:gaussian_nll, :asymmetric_gaussian_nll, :asymmetric_student_t_nll) ||
+        (uncertainty_mode == :asymmetry && loss_preset == :default)
+    if likelihood_preset && loss_scale == :log
+        throw(ArgumentError(
+            "Likelihood loss presets can be negative; use loss_scale=:linear."
+        ))
+    end
+    if loss_preset != :default && custom_loss_provided
+        throw(ArgumentError("Built-in loss presets cannot be combined with custom loss functions."))
+    end
+    if uncertainty_mode != :none && custom_loss_provided
+        throw(ArgumentError("Uncertainty modes cannot be combined with custom loss functions."))
+    end
+    if uncertainty_mode != :asymmetry &&
+       loss_preset in (:asymmetric_gaussian_nll, :asymmetric_huber,
+        :asymmetric_pseudo_huber, :asymmetric_student_t_nll)
+        throw(ArgumentError("Asymmetric loss presets require uncertainty_mode=:asymmetry."))
+    end
     0.0 <= rnn_gpsr_seed_fraction <= 1.0 ||
         throw(ArgumentError("`rnn_gpsr_seed_fraction` must be in [0, 1]."))
     rnn_gpsr_candidate_count >= 8 ||
@@ -1303,6 +1400,31 @@ $(OPTION_DESCRIPTIONS)
         throw(ArgumentError("`batch_size` must be at least 1."))
     batch_size = batch_size === nothing ? nothing : Int(batch_size)
 
+    surrogate_model in (:knn,) ||
+        throw(ArgumentError("`surrogate_model` must be `:knn`."))
+    surrogate_warmup_evals >= 1 ||
+        throw(ArgumentError("`surrogate_warmup_evals` must be positive."))
+    for (name, value) in (
+        (:surrogate_true_eval_fraction, surrogate_true_eval_fraction),
+        (:surrogate_exploration_fraction, surrogate_exploration_fraction),
+    )
+        isfinite(value) && 0 <= value <= 1 ||
+            throw(ArgumentError("`$name` must be finite and in [0, 1]."))
+    end
+    for (name, value) in (
+        (:surrogate_uncertainty_scale, surrogate_uncertainty_scale),
+        (:surrogate_reject_margin, surrogate_reject_margin),
+    )
+        isfinite(value) && value >= 0 ||
+            throw(ArgumentError("`$name` must be finite and non-negative."))
+    end
+    surrogate_probe_size >= 1 ||
+        throw(ArgumentError("`surrogate_probe_size` must be positive."))
+    surrogate_neighbors >= 1 ||
+        throw(ArgumentError("`surrogate_neighbors` must be positive."))
+    surrogate_max_samples >= 1 ||
+        throw(ArgumentError("`surrogate_max_samples` must be positive."))
+
     formula_type = if formula_type isa AbstractString
         Symbol(formula_type)
     else
@@ -1374,6 +1496,16 @@ $(OPTION_DESCRIPTIONS)
         perturbation_factor,
         batching,
         batch_size,
+        surrogate_enabled,
+        surrogate_model,
+        Int(surrogate_warmup_evals),
+        Float64(surrogate_true_eval_fraction),
+        Float64(surrogate_exploration_fraction),
+        Float64(surrogate_uncertainty_scale),
+        Float64(surrogate_reject_margin),
+        Int(surrogate_probe_size),
+        Int(surrogate_neighbors),
+        Int(surrogate_max_samples),
         _resolved_mutations,
         _resolved_crossovers,
         crossover_probability,
@@ -1406,6 +1538,10 @@ $(OPTION_DESCRIPTIONS)
         loss_function,
         loss_function_expression,
         loss_scale,
+        loss_preset,
+        uncertainty_mode,
+        Float64(robust_delta),
+        Float64(student_nu),
         node_type,
         expression_type,
         expression_options,

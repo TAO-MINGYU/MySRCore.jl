@@ -11,6 +11,7 @@ using DynamicExpressions:
 using DynamicExpressions.EvaluateModule: reset_index!
 using LossFunctions: LossFunctions
 using LossFunctions: SupervisedLoss
+using SpecialFunctions: loggamma
 using ..CoreModule:
     AbstractOptions,
     Dataset,
@@ -48,6 +49,155 @@ function _weighted_loss(
         "Element type of `x` is $(T1), element type of `y` is $(T2), and element type of `w` is $(T3). " *
         "All element types must be the same.",
     )
+end
+
+# Measurement uncertainty is kept in Dataset.extra so the Dataset ABI remains
+# compatible with existing serialized states and custom Dataset constructors.
+# The public equation_search wrapper stores arrays with output rows first.
+function _extra_array(dataset::Dataset, name::Symbol)
+    extra = dataset.extra
+    return hasproperty(extra, name) ? getproperty(extra, name) : nothing
+end
+
+function _dataset_output_array(dataset::Dataset, value)
+    value === nothing && return nothing
+    indices = get_indices(dataset)
+    if value isa AbstractVector
+        return indices === nothing ? value : view(value, indices)
+    elseif value isa AbstractMatrix
+        size(value, 1) == 1 &&
+            return indices === nothing ? view(value, 1, :) : view(value, 1, indices)
+        dataset.index <= size(value, 1) ||
+            throw(DimensionMismatch("uncertainty array has too few output rows."))
+        return indices === nothing ? view(value, dataset.index, :) : view(value, dataset.index, indices)
+    else
+        throw(ArgumentError("uncertainty values must be vectors or matrices."))
+    end
+end
+
+function _measurement_uncertainty(dataset::Dataset, mode::Symbol)
+    if mode == :symmetry
+        sigma = _dataset_output_array(dataset, _extra_array(dataset, :sigma))
+        sigma === nothing && return nothing
+        length(sigma) == dataset.n ||
+            throw(DimensionMismatch("sigma must have one entry per dataset sample."))
+        all(v -> isfinite(v) && v > zero(v), sigma) ||
+            throw(ArgumentError("sigma values must be finite and strictly positive."))
+        return sigma
+    elseif mode == :asymmetry
+        sigma_minus = _dataset_output_array(dataset, _extra_array(dataset, :sigma_minus))
+        sigma_plus = _dataset_output_array(dataset, _extra_array(dataset, :sigma_plus))
+        if sigma_minus === nothing || sigma_plus === nothing
+            throw(ArgumentError("asymmetry requires sigma_minus and sigma_plus."))
+        end
+        (length(sigma_minus) == dataset.n && length(sigma_plus) == dataset.n) ||
+            throw(DimensionMismatch("sigma_minus and sigma_plus must match dataset samples."))
+        all(v -> isfinite(v) && v > zero(v), sigma_minus) &&
+            all(v -> isfinite(v) && v > zero(v), sigma_plus) ||
+            throw(ArgumentError("sigma_minus and sigma_plus must be finite and strictly positive."))
+        return sigma_minus, sigma_plus
+    elseif mode == :none
+        return nothing
+    end
+    throw(ArgumentError("uncertainty_mode must be :none, :symmetry, or :asymmetry."))
+end
+
+@inline function _huber_value(u, delta)
+    au = abs(u)
+    return au <= delta ? (u * u) / 2 : delta * (au - delta / 2)
+end
+
+@inline function _pseudo_huber_value(u, delta)
+    return delta^2 * (sqrt(one(u) + (u / delta)^2) - one(u))
+end
+
+function _aggregate_values(values, weights)
+    if weights === nothing
+        return sum(values) / length(values)
+    end
+    return sum(values .* weights) / sum(weights)
+end
+
+function _preset_loss(prediction, target, dataset::Dataset, options::AbstractOptions)
+    preset = options.loss_preset
+    mode = options.uncertainty_mode
+    weights = dataset.weights
+    if mode != :none && weights !== nothing
+        throw(ArgumentError(
+            "Measurement uncertainty cannot be combined with observation weights."
+        ))
+    end
+    if mode == :asymmetry
+        sigma_minus, sigma_plus = _measurement_uncertainty(dataset, mode)
+        preset = preset == :default ? :asymmetric_gaussian_nll : preset
+        values = similar(prediction)
+        for i in eachindex(prediction)
+            residual = prediction[i] - target[i]
+            sigma = residual < zero(residual) ? sigma_minus[i] : sigma_plus[i]
+            standardized = residual / sigma
+            values[i] = if preset == :asymmetric_gaussian_nll
+                (standardized^2) / 2 + log(sigma_minus[i] + sigma_plus[i]) +
+                log(pi / 2) / 2
+            elseif preset == :asymmetric_huber
+                _huber_value(standardized, options.robust_delta)
+            elseif preset == :asymmetric_pseudo_huber
+                _pseudo_huber_value(standardized, options.robust_delta)
+            elseif preset == :asymmetric_student_t_nll
+                nu = options.student_nu
+                (nu + one(nu)) / 2 * log1p(standardized^2 / nu) +
+                log(sigma_minus[i] + sigma_plus[i]) - log(2) +
+                loggamma(nu / 2) - loggamma((nu + one(nu)) / 2) +
+                log(nu * pi) / 2
+            else
+                throw(ArgumentError("Unsupported asymmetric loss preset: $(preset)."))
+            end
+        end
+        # Uncertainty is a likelihood scale, not a residual-dependent sample
+        # weight. Use a fixed N denominator so a sign change cannot alter it.
+        return sum(values) / length(values)
+    elseif mode == :symmetry
+        sigma = _measurement_uncertainty(dataset, mode)
+        sigma === nothing && throw(ArgumentError("symmetry requires sigma."))
+        values = similar(prediction)
+        for i in eachindex(prediction)
+            residual = (prediction[i] - target[i]) / sigma[i]
+            values[i] = if preset == :gaussian_nll
+                residual^2 / 2 + log(sigma[i]) + log(2pi) / 2
+            elseif preset in (:default, :l2)
+                residual^2
+            elseif preset == :l1
+                abs(residual)
+            elseif preset == :huber
+                _huber_value(residual, options.robust_delta)
+            elseif preset == :pseudo_huber
+                _pseudo_huber_value(residual, options.robust_delta)
+            elseif preset == :log_cosh
+                logcosh(residual)
+            else
+                throw(ArgumentError("Loss preset $(preset) is incompatible with symmetric uncertainty."))
+            end
+        end
+        return sum(values) / length(values)
+    end
+
+    values = similar(prediction)
+    for i in eachindex(prediction)
+        residual = prediction[i] - target[i]
+        values[i] = if preset in (:default, :l2)
+            residual^2
+        elseif preset == :l1
+            abs(residual)
+        elseif preset == :huber
+            _huber_value(residual, options.robust_delta)
+        elseif preset == :pseudo_huber
+            _pseudo_huber_value(residual, options.robust_delta)
+        elseif preset == :log_cosh
+            logcosh(residual)
+        else
+            throw(ArgumentError("Loss preset $(preset) requires a compatible uncertainty mode."))
+        end
+    end
+    return _aggregate_values(values, weights)
 end
 
 function _loss(
@@ -125,7 +275,9 @@ function _eval_loss(
         return L(Inf)
     end
 
-    loss_val = if is_weighted(dataset)
+    loss_val = if options.loss_preset != :default || options.uncertainty_mode != :none
+        _preset_loss(prediction, dataset.y::AbstractArray, dataset, options)
+    elseif is_weighted(dataset)
         _weighted_loss(
             prediction,
             dataset.y::AbstractArray,

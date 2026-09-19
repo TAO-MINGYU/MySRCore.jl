@@ -302,6 +302,17 @@ struct Options{
     perturbation_factor::Float64
     batching::B
     batch_size::BS
+    # Optional local surrogate gate for candidate cost evaluations.
+    surrogate_enabled::Bool
+    surrogate_model::Symbol
+    surrogate_warmup_evals::Int
+    surrogate_true_eval_fraction::Float64
+    surrogate_exploration_fraction::Float64
+    surrogate_uncertainty_scale::Float64
+    surrogate_reject_margin::Float64
+    surrogate_probe_size::Int
+    surrogate_neighbors::Int
+    surrogate_max_samples::Int
     mutations::Vector{Pair{AbstractMutation,Float64}}
     crossovers::Vector{Pair{AbstractCrossover,Float64}}
     crossover_probability::Float64
@@ -334,6 +345,10 @@ struct Options{
     loss_function::Union{Nothing,Function}
     loss_function_expression::Union{Nothing,Function}
     loss_scale::Symbol
+    loss_preset::Symbol
+    uncertainty_mode::Symbol
+    robust_delta::Float64
+    student_nu::Float64
     node_type::Type{N}
     expression_type::Type{E}
     expression_options::EO
@@ -471,6 +486,24 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :rnn_gpsr_feedback_fraction,
         :rnn_gpsr_quality_gate,
         :rnn_gpsr_maxsize,
+        :surrogate_enabled,
+        :surrogate_model,
+        :surrogate_warmup_evals,
+        :surrogate_true_eval_fraction,
+        :surrogate_exploration_fraction,
+        :surrogate_uncertainty_scale,
+        :surrogate_reject_margin,
+        :surrogate_probe_size,
+        :surrogate_neighbors,
+        :surrogate_max_samples,
+        :elementwise_loss,
+        :loss_function,
+        :loss_function_expression,
+        :loss_scale,
+        :loss_preset,
+        :uncertainty_mode,
+        :robust_delta,
+        :student_nu,
         :node_type,
         :expression_type,
         :expression_options,
