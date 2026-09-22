@@ -56,6 +56,12 @@ end
         elseif field == :batch_size
             @test v1_value == 50
             @test v2_value === nothing
+        elseif field == :parent_selection
+            @test v1_value == :tournament
+            @test v2_value == :epsilon_lexicase
+        elseif field == :survival_strategy
+            @test v1_value == :regularized_evolution
+            @test v2_value == :age_fitness_pareto
         else
             @test isequal(v1_value, v2_value)
         end

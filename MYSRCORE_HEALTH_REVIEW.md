@@ -330,3 +330,17 @@ pipeline smoke、单次 serial fit、单个 selected equation 或 focused unit t
 本阶段的本机诊断数字是 64×128 epsilon-lexicase absolute threshold 中位数约
 `3.09e-5 s`，小型 serial search（1 population、10 members、4 cycles）热身后中位数约
 `0.00358 s`。这些数字只用于回归和量级监视，不能替代第 6 节的 matched benchmark。
+
+## 11. 第二阶段默认策略与质量审查回写（2026-09-22）
+
+- 当前 v2 默认已切换为 `parent_selection=:epsilon_lexicase` 与
+  `survival_strategy=:age_fitness_pareto`；显式 tournament、regularized evolution 和
+  competitive age-fitness 仍可用。
+- `default_options(v"1.0.0")` 保留旧策略，`default_options(v"2.0.0-alpha")` 与当前
+  `default_options()` 使用新策略；`Options(defaults=...)` 会按该 profile 解析未显式指定的策略。
+- 默认 lexicase 在 batching、custom aggregate loss 或不可拆分 elementwise loss 下继续安全回退
+  tournament，并保留 effective strategy/fallback reason 诊断。
+- 二次搜索主路径审查修复 surrogate exploration 和 deprecated `sample_mutation` 的显式 RNG
+  缺口；plugin wrapper 的旧两参数调用形状保持不变。
+- 完整 MySRCore 测试通过；新增 parent policy 测试 `50/50`、surrogate gate `11/11`；Python
+  focused tests `10 passed`，默认策略 bridge smoke 确认 Julia 端收到 lexicase + AFP。
