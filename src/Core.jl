@@ -17,6 +17,7 @@ include("Options.jl")
 include("PopulationMigration.jl")
 include("InterfaceDataTypes.jl")
 
+using .OptionsModule: DEFAULT_PARENT_SELECTION, DEFAULT_SURVIVAL_STRATEGY
 using .ProgramConstantsModule: MaybeTrace, TraceType, DATA_TYPE, LOSS_TYPE
 using .DatasetModule:
     Dataset,

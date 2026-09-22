@@ -1,5 +1,6 @@
 module MutationWeightsModule
 
+using Random: AbstractRNG, default_rng
 import ..MutationsModule:
     AbstractMutation,
     ConstantMutation,
@@ -147,7 +148,7 @@ end
 using DispatchDoctor: @unstable
 
 """
-    sample_mutation(mutations) -> AbstractMutation
+    sample_mutation(mutations; rng=default_rng()) -> AbstractMutation
 
 Pick a mutation kind by weight. Returns the singleton instance.
 
@@ -158,8 +159,14 @@ instability is contained.
 """
 @unstable function sample_mutation(
     mutations::AbstractVector{<:Pair{<:AbstractMutation,<:Real}},  # COV_EXCL_LINE
+    ;
+    rng::AbstractRNG=default_rng(),
 )
-    idx = StatsBase.sample(eachindex(mutations), StatsBase.Weights(map(last, mutations)))
+    idx = StatsBase.sample(
+        rng,
+        eachindex(mutations),
+        StatsBase.Weights(map(last, mutations)),
+    )
     return mutations[idx].first
 end
 

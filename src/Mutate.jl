@@ -570,6 +570,7 @@ function _next_generation(
         options,
         after_size,
         before_cost,
+        rng=rng,
     )
     if !surrogate_decision.evaluate
         trace_mutation_result!(tmp_trace, "reject", "surrogate_rejected")

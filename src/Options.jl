@@ -61,6 +61,15 @@ using ..ExpressionSpecModule:
     get_expression_options,
     get_node_type
 
+"""Current v2 default parent-selection policy."""
+const DEFAULT_PARENT_SELECTION = :epsilon_lexicase
+
+"""Current v2 default population-survival policy."""
+const DEFAULT_SURVIVAL_STRATEGY = :age_fitness_pareto
+
+const LEGACY_PARENT_SELECTION = :tournament
+const LEGACY_SURVIVAL_STRATEGY = :regularized_evolution
+
 """Build constraints on operator-level complexity from a user-passed dict."""
 @unstable function build_constraints(;
     constraints=nothing,
@@ -418,10 +427,11 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `tournament_selection_p`: The fittest expression in a tournament is to be
     selected with probability `p`, the next fittest with probability `p*(1-p)`,
     and so forth.
-- `parent_selection`: Parent-selection policy. `:tournament` preserves the
-    current scalar-cost tournament; `:epsilon_lexicase` enables full-data
-    epsilon-lexicase selection for built-in losses, including uncertainty-aware
-    presets, when batching and custom aggregate objectives are not enabled.
+- `parent_selection`: Parent-selection policy. The current v2 default is
+    `:epsilon_lexicase`, which enables full-data epsilon-lexicase selection for
+    built-in losses, including uncertainty-aware presets, when batching and
+    custom aggregate objectives are not enabled. `:tournament` remains
+    available as an explicit scalar-cost policy.
 - `epsilon`: Optional epsilon-lexicase threshold. `nothing` selects the
     adaptive system default. With `epsilon_mode=:mad`, a numeric value is a
     non-negative floor for the per-case MAD threshold; with `:absolute` it is
@@ -429,9 +439,10 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     magnitude of the best finite error (at least one).
 - `epsilon_mode`: Epsilon-lexicase threshold mode, one of `:mad` (the default),
     `:absolute`, or `:relative`. The latter two require a numeric `epsilon`.
-- `survival_strategy`: Population-survival policy. `:regularized_evolution`
-    preserves the current oldest-member replacement; `:age_fitness_pareto`
-    applies Age-Fitness Pareto survival to the parent and offspring pool;
+- `survival_strategy`: Population-survival policy. The current v2 default is
+    `:age_fitness_pareto`, which applies Age-Fitness Pareto survival to the
+    parent and offspring pool. `:regularized_evolution`
+    preserves oldest-member replacement;
     `:competitive_age_fitness` first compares each child with its parent,
     then applies age-fitness survival with structural duplicate suppression.
 - `topn`: Number of equations to return to the host process, and to
@@ -761,10 +772,10 @@ end
     ## 6. Tournament Selection:
     tournament_selection_n::Union{Nothing,Integer} = nothing,
     tournament_selection_p::Union{Nothing,Real} = nothing,
-    parent_selection::Symbol=:tournament,
+    parent_selection::Union{Nothing,Symbol}=nothing,
     epsilon::Union{Nothing,Real}=nothing,
     epsilon_mode::Symbol=:mad,
-    survival_strategy::Symbol=:regularized_evolution,
+    survival_strategy::Union{Nothing,Symbol}=nothing,
     ## 7. Constant Optimization:
     ###           optimizer_algorithm
     ###           optimizer_nrestarts
@@ -1051,6 +1062,8 @@ end
     probability_negate_constant = something(probability_negate_constant, _default_options.probability_negate_constant)
     tournament_selection_n = something(tournament_selection_n, _default_options.tournament_selection_n)
     tournament_selection_p = something(tournament_selection_p, _default_options.tournament_selection_p)
+    parent_selection = something(parent_selection, _default_options.parent_selection)
+    survival_strategy = something(survival_strategy, _default_options.survival_strategy)
     fraction_replaced = something(fraction_replaced, _default_options.fraction_replaced)
     fraction_replaced_hof = something(fraction_replaced_hof, _default_options.fraction_replaced_hof)
     fraction_replaced_guesses = something(fraction_replaced_guesses, _default_options.fraction_replaced_guesses)
@@ -1747,9 +1760,11 @@ function default_options(@nospecialize(version::Union{VersionNumber,Nothing} = n
             alpha=0.1,
             perturbation_factor=0.076,
             probability_negate_constant=0.01,
-            # Tournament Selection
+            # Parent selection and survival
             tournament_selection_n=12,
             tournament_selection_p=0.86,
+            parent_selection=LEGACY_PARENT_SELECTION,
+            survival_strategy=LEGACY_SURVIVAL_STRATEGY,
             # Migration between Populations
             fraction_replaced=0.00036,
             fraction_replaced_hof=0.035,
@@ -1793,11 +1808,11 @@ function default_options(@nospecialize(version::Union{VersionNumber,Nothing} = n
         alpha=3.17,
         perturbation_factor=0.129,
         probability_negate_constant=0.00743,
-        # Tournament Selection
+        # Parent selection and survival
         tournament_selection_n=15,
         tournament_selection_p=0.982,
-        parent_selection=:tournament,
-        survival_strategy=:regularized_evolution,
+        parent_selection=DEFAULT_PARENT_SELECTION,
+        survival_strategy=DEFAULT_SURVIVAL_STRATEGY,
         # Migration between Populations
         fraction_replaced=0.00036,
         ## ^Note: the optimal value found was 0.00000425,
@@ -1810,6 +1825,14 @@ function default_options(@nospecialize(version::Union{VersionNumber,Nothing} = n
         batching=false,
         batch_size=50,
     )
+
+    if !isnothing(version) && version < v"2.0.0-"
+        defaults = (;
+            defaults...,
+            parent_selection=LEGACY_PARENT_SELECTION,
+            survival_strategy=LEGACY_SURVIVAL_STRATEGY,
+        )
+    end
 
     if isnothing(version) || version >= v"2.0.0-"
         defaults = (;

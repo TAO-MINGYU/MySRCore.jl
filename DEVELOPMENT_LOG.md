@@ -599,3 +599,21 @@
 - **Verification**：env_1_mysr 的 Julia 1.10.3，临时可写 depot/project 指向此 worktree；完整 `Pkg.test("MySRCore"; coverage=false)` 通过，Parent selection testset `39/39`，其余既有 testsets 全部通过；seed=42 的小型 serial search 重复运行表达式序列一致；`git diff --check` 通过。
 - **Local microbenchmark**：64×128 epsilon-lexicase absolute threshold 中位数约 `3.09e-5 s`；population=1、population_size=10、ncycles=4 的小型 serial search 热身后 3 次约 `0.00355–0.00413 s`（中位数 `0.00358 s`）。这些是诊断性本机数字，不代表 matched benchmark 或默认策略收益。
 - **边界/遗留**：semantic backprop 当前只对 `AbstractExpressionNode{T,2}` 做安全常数替换，默认关闭；跨线程/跨进程只保证独立 RNG 流和统计一致性，仍需正式 P/M matched benchmark 后决定是否切换默认 parent/survival 或提高新 mutation/crossover 权重；Python bridge 尚未新增 epsilon 参数映射。
+
+## 2026-09-22 - Default policy v2 and search-path quality pass
+
+- **默认策略**：当前 v2 与 Python 默认改为 `epsilon_lexicase` + `age_fitness_pareto`；显式
+  `tournament`、`regularized_evolution` 和 `competitive_age_fitness` 保持可选。小于
+  `2.0.0-` 的 versioned defaults 保留旧策略，避免历史配置静默改变。
+- **契约修复**：策略未显式传入时由 versioned default profile 解析，消除 `Options` 构造器、
+  `default_options()` 和 Python bridge 的默认漂移；导出 `DEFAULT_PARENT_SELECTION` 与
+  `DEFAULT_SURVIVAL_STRATEGY`。
+- **稳定性修复**：surrogate exploration 与旧 `sample_mutation` API 使用显式 RNG；现有
+  plugin wrapper 调用形状保持兼容。lexicase unsupported fallback 继续记录 effective policy
+  和 reason。
+- **验证**：完整 MySRCore `Pkg.test("MySRCore"; coverage=false)` 通过；parent selection
+  `50/50`、surrogate gate `11/11`；Python 策略/migration/uncertainty focused tests `10 passed`，
+  backend default bridge smoke 成功，额外 Python default backend tests `2 passed`，compileall 与
+  `git diff --check` 通过。
+- **限制**：未运行完整 Python 405 项或 matched P/M benchmark；当前结论证明契约、兼容和稳定性，
+  不代表新默认在搜索质量、吞吐或资源上已经优于旧策略。
