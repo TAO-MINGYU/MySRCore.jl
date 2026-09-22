@@ -640,3 +640,7 @@
   after re-running the affected suites.
 - **Unknown**：Matched P/M benchmark quality, throughput, and evaluation-count effects
   remain to be measured; this change does not claim a general performance gain.
+
+## 2026-09-22 - RNN-GPSR post-sync verification
+
+- **Verification**：After merging canonical default-policy changes, Julia 1.10.3 with an isolated writable depot/project ran the complete `Pkg.test("MySRCore"; coverage=false)` suite successfully. The RNN-GPSR testsets included the independent-budget regression (`6/6`), and all existing uncertainty, parent-selection, surrogate, migration, dimensional, and template testsets passed. `git diff --check` also passed.
