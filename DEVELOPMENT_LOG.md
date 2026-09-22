@@ -617,3 +617,26 @@
   `git diff --check` 通过。
 - **限制**：未运行完整 Python 405 项或 matched P/M benchmark；当前结论证明契约、兼容和稳定性，
   不代表新默认在搜索质量、吞吐或资源上已经优于旧策略。
+
+## 2026-09-22 - Isolate RNN-GPSR lightweight GPSR budget
+
+- **Decision**：`Options` now exposes independent `rnn_gpsr_populations`,
+  `rnn_gpsr_population_size`, `rnn_gpsr_niterations`, and
+  `rnn_gpsr_ncycles_per_iteration` fields with defaults `1`, `8`, `1`, and `4`.
+  The formal population, population size, iterations, cycles, and migration settings
+  remain separate from the RNN-GPSR bootstrap stage.
+- **Compatibility**：`rnn_gpsr_cycles` remains a normalized compatibility alias;
+  conflicting explicit values are rejected. The seed builder invokes the existing
+  regularized-evolution cycle for each configured lightweight population/iteration,
+  with no population migration during seeding.
+- **Quality fixes**：Each lightweight population receives an independent deterministic
+  RNG stream and forked plugin state. Seed pools are bounded and tree-deduplicated;
+  bootstrap candidate evaluations are counted; and tournament sampling is clamped so
+  the default formal tournament size remains valid for an eight-member lightweight
+  population.
+- **Verification**：Before canonical synchronization, the complete MySRCore test suite
+  passed under Julia 1.10.3 with an isolated writable depot/project, including the new
+  lightweight-budget regression. Final post-sync tests and bridge checks are recorded
+  after re-running the affected suites.
+- **Unknown**：Matched P/M benchmark quality, throughput, and evaluation-count effects
+  remain to be measured; this change does not claim a general performance gain.
