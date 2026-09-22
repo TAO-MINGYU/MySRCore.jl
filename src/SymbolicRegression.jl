@@ -26,6 +26,7 @@ export Population,
     BreakConnectionMutation,
     RotateTreeMutation,
     BacksolveMutation,
+    SemanticBackpropMutation,
     SimplifyMutation,
     RandomizeMutation,
     OptimizeMutation,
@@ -64,6 +65,8 @@ export Population,
     equation_search,
     parent_selection_diagnostic,
     epsilon_lexicase_index,
+    DEFAULT_EPSILON,
+    DEFAULT_EPSILON_MODE,
     age_fitness_pareto_survivor_indices,
     competitive_survivor_indices,
     profiled_options,
@@ -139,7 +142,7 @@ using Distributed
 using Printf: @printf, @sprintf
 using Pkg: Pkg
 using TOML: parsefile
-using Random: seed!, shuffle!, default_rng
+using Random: seed!, shuffle!, default_rng, MersenneTwister
 using Reexport
 using ProgressMeter: finish!
 using DynamicExpressions:
@@ -329,6 +332,7 @@ using .CoreModule:
     BreakConnectionMutation,
     RotateTreeMutation,
     BacksolveMutation,
+    SemanticBackpropMutation,
     SimplifyMutation,
     RandomizeMutation,
     OptimizeMutation,
@@ -429,6 +433,8 @@ using .LossFunctionsModule:
 using .ParentSelectionModule:
     parent_selection_diagnostic,
     epsilon_lexicase_index,
+    DEFAULT_EPSILON,
+    DEFAULT_EPSILON_MODE,
     age_fitness_pareto_survivor_indices,
     competitive_survivor_indices
 using .ConstantOptimizationModule:
@@ -858,6 +864,23 @@ function _validate_options(
     end
     return nothing
 end
+
+"""Create an independent reproducible RNG stream for one search slot."""
+function _search_rng(
+    options::AbstractOptions,
+    output::Integer,
+    population::Integer,
+    iteration::Integer,
+    stream::Integer,
+)
+    base = options.seed === nothing ? rand(default_rng(), Int) : options.seed
+    value = UInt64(mod(Int(base), typemax(Int)))
+    for component in (output, population, iteration, stream)
+        value ⊻= UInt64(component) * UInt64(0x9e3779b97f4a7c15)
+        value = (value << 7) ⊻ (value >> 3) ⊻ UInt64(0x517cc1b727220a95)
+    end
+    return MersenneTwister(Int(mod(value, UInt64(typemax(Int)))))
+end
 @stable default_mode = "disable" function _create_workers(
     datasets::Vector{D}, ropt::AbstractRuntimeOptions, options::AbstractOptions
 ) where {T,L,D<:Dataset{T,L}}
@@ -939,7 +962,7 @@ end
     # Randomly order which order to check populations:
     # This is done so that we do work on all nout equally.
     task_order = [(j, i) for j in 1:nout for i in 1:(options.populations)]
-    shuffle!(task_order)
+    shuffle!(_search_rng(options, 0, 0, 0, 6), task_order)
 
     # Persistent storage of last-saved population for final return:
     last_pops = init_dummy_pops(options.populations, datasets, options)
@@ -1112,6 +1135,7 @@ function _initialize_search!(
                             options=_population_options,
                             nfeatures=max_features(_dataset, _population_options),
                             plugin_states=_plugin_states,
+                            rng=_search_rng(options, j, i, 0, 0),
                         )
                         inject_initial_seeds!(
                             initial_population,
@@ -1375,7 +1399,8 @@ function _main_search_loop!(
             ###################################################################
             # Migration #######################################################
             if options.migration
-                source = random_migration_source(options, i; rng=default_rng())
+                migration_rng = _search_rng(options, j, i, kappa, 3)
+                source = random_migration_source(options, i; rng=migration_rng)
                 if source !== nothing
                     destination_profile = migration_profile(options, i)
                     candidates = migration_candidates(
@@ -1388,10 +1413,12 @@ function _main_search_loop!(
                         candidates => cur_pop,
                         options;
                         frac=options.fraction_replaced,
+                        rng=migration_rng,
                     )
                 end
             end
             if options.hof_migration && length(dominating) > 0
+                migration_rng = _search_rng(options, j, i, kappa, 4)
                 destination_profile = migration_profile(options, i)
                 hof_candidates = compatible_migration_candidates(
                     dominating, destination_profile
@@ -1401,14 +1428,17 @@ function _main_search_loop!(
                         hof_candidates => cur_pop,
                         options;
                         frac=options.fraction_replaced_hof,
+                        rng=migration_rng,
                     )
                 end
             end
             if !isempty(state.seed_members[j])
+                migration_rng = _search_rng(options, j, i, kappa, 5)
                 migrate!(
                     state.seed_members[j] => cur_pop,
                     options;
                     frac=options.fraction_replaced_guesses,
+                    rng=migration_rng,
                 )
             end
             ###################################################################
@@ -1617,10 +1647,16 @@ end
         plugin_states,
         surrogate_snapshot=surrogate_snapshot,
         return_surrogate_state=true,
+        rng=_search_rng(options, out, pop, iteration, 1),
     )
     num_evals += evals_from_cycle
     out_pop, evals_from_optimize = optimize_and_simplify_population(
-        dataset, out_pop, population_options, cur_maxsize, trace
+        dataset,
+        out_pop,
+        population_options,
+        cur_maxsize,
+        trace;
+        rng=_search_rng(options, out, pop, iteration, 2),
     )
     num_evals += evals_from_optimize
     if use_batching(options, dataset)

@@ -422,6 +422,13 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     current scalar-cost tournament; `:epsilon_lexicase` enables full-data
     epsilon-lexicase selection for built-in losses, including uncertainty-aware
     presets, when batching and custom aggregate objectives are not enabled.
+- `epsilon`: Optional epsilon-lexicase threshold. `nothing` selects the
+    adaptive system default. With `epsilon_mode=:mad`, a numeric value is a
+    non-negative floor for the per-case MAD threshold; with `:absolute` it is
+    an absolute error tolerance; with `:relative` it is multiplied by the
+    magnitude of the best finite error (at least one).
+- `epsilon_mode`: Epsilon-lexicase threshold mode, one of `:mad` (the default),
+    `:absolute`, or `:relative`. The latter two require a numeric `epsilon`.
 - `survival_strategy`: Population-survival policy. `:regularized_evolution`
     preserves the current oldest-member replacement; `:age_fitness_pareto`
     applies Age-Fitness Pareto survival to the parent and offspring pool;
@@ -573,6 +580,8 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     - `DoNothingMutation() => 0.431`: No-op (allows crossover to dominate).
     - `OptimizeMutation() => 0.0`: Optimize constants via gradient descent (off by default).
     - `BacksolveMutation() => 0.0`: Solve for a constant analytically (off by default).
+    - `SemanticBackpropMutation() => 0.0`: Invert a subtree's semantic path and
+      apply a bounded constant replacement (off by default).
     - `FormConnectionMutation() => 0.5`: Form a shared subtree connection.
     - `BreakConnectionMutation() => 0.1`: Break a shared subtree connection.
 - `default_mutations`: Default weighted mutations considered after `mutations`.
@@ -745,6 +754,8 @@ end
     tournament_selection_n::Union{Nothing,Integer} = nothing,
     tournament_selection_p::Union{Nothing,Real} = nothing,
     parent_selection::Symbol=:tournament,
+    epsilon::Union{Nothing,Real}=nothing,
+    epsilon_mode::Symbol=:mad,
     survival_strategy::Symbol=:regularized_evolution,
     ## 7. Constant Optimization:
     ###           optimizer_algorithm
@@ -1064,12 +1075,26 @@ end
         )
     end
 
-    @assert maxsize > 3
-    @assert warmup_maxsize_by >= 0.0f0
-    @assert tournament_selection_n < population_size "`tournament_selection_n` must be less than `population_size`"
-    @assert loss_scale in (:log, :linear) "`loss_scale` must be either log or linear"
+    maxsize > 3 || throw(ArgumentError("`maxsize` must be greater than 3."))
+    isfinite(warmup_maxsize_by) && warmup_maxsize_by >= 0.0 ||
+        throw(ArgumentError("`warmup_maxsize_by` must be finite and non-negative."))
+    tournament_selection_n < population_size ||
+        throw(ArgumentError("`tournament_selection_n` must be less than `population_size`."))
+    loss_scale in (:log, :linear) ||
+        throw(ArgumentError("`loss_scale` must be either :log or :linear."))
     parent_selection in (:tournament, :epsilon_lexicase) ||
         throw(ArgumentError("`parent_selection` must be `:tournament` or `:epsilon_lexicase`."))
+    epsilon_mode in (:mad, :absolute, :relative) ||
+        throw(ArgumentError("`epsilon_mode` must be :mad, :absolute, or :relative."))
+    if epsilon === nothing
+        epsilon_mode === :mad ||
+            throw(ArgumentError("`epsilon` is required for epsilon_mode=$(epsilon_mode)."))
+    else
+        epsilon_value = Float64(epsilon)
+        isfinite(epsilon_value) && epsilon_value >= 0 ||
+            throw(ArgumentError("`epsilon` must be finite and non-negative."))
+        epsilon = epsilon_value
+    end
     survival_strategy in (
         :regularized_evolution,
         :age_fitness_pareto,
@@ -1550,6 +1575,8 @@ end
         tournament_selection_n,
         tournament_selection_p,
         parent_selection,
+        epsilon === nothing ? nothing : Float64(epsilon),
+        epsilon_mode,
         survival_strategy,
         parsimony,
         formula_type,

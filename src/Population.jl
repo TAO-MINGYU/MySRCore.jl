@@ -1,6 +1,6 @@
 module PopulationModule
 
-using Random: default_rng
+using Random: AbstractRNG, default_rng
 using StatsBase: StatsBase
 using DispatchDoctor: @unstable
 using DynamicExpressions: AbstractExpression, constructorof
@@ -51,7 +51,13 @@ expression (two or more providers throw). If all plugins return `nothing`
 `gen_random_tree`.
 """
 function _init_tree(
-    dataset, options, nlength::Int, nfeatures::Int, ::Type{T}, plugin_states::Tuple
+    dataset,
+    options,
+    nlength::Int,
+    nfeatures::Int,
+    ::Type{T},
+    plugin_states::Tuple,
+    rng::AbstractRNG=default_rng(),
 ) where {T}
     # Keep initial members under the same dimensional gate as evolved members.
     # This is deliberately separate from PopulationSeeding.jl: RNN-GPSR remains
@@ -60,9 +66,9 @@ function _init_tree(
         plugin_tree = resolve_init_member(plugin_states, options.plugins, dataset, options)
         tree = if plugin_tree === nothing
             typed_tree = gen_random_tree_dimensional(
-                dataset, options, nlength, nfeatures, T, default_rng()
+                dataset, options, nlength, nfeatures, T, rng
             )
-            @something(typed_tree, gen_random_tree(nlength, options, nfeatures, T))
+            @something(typed_tree, gen_random_tree(nlength, options, nfeatures, T, rng))
         else
             plugin_tree
         end
@@ -74,8 +80,8 @@ function _init_tree(
     # performance while guaranteeing a valid simple seed whenever one exists.
     for _ in 1:64
         tree = @something(
-            gen_random_tree_dimensional(dataset, options, 1, nfeatures, T, default_rng()),
-            gen_random_tree(1, options, nfeatures, T),
+            gen_random_tree_dimensional(dataset, options, 1, nfeatures, T, rng),
+            gen_random_tree(1, options, nfeatures, T, rng),
         )
         check_constraints(tree, dataset, options, options.maxsize) && return tree
     end
@@ -100,6 +106,7 @@ function Population(
     nfeatures::Int,
     npop=nothing,
     plugin_states::Tuple,
+    rng::AbstractRNG=default_rng(),
 ) where {T,L}
     @assert (population_size !== nothing) ⊻ (npop !== nothing)
     population_size = something(population_size, npop)
@@ -108,7 +115,7 @@ function Population(
     # Create first member to get concrete type
     first_member = constructorof(PM)(
         dataset,
-        _init_tree(dataset, options, nlength, nfeatures, T, plugin_states),
+        _init_tree(dataset, options, nlength, nfeatures, T, plugin_states, rng),
         options;
         parent=-1,
         deterministic=options.deterministic,
@@ -121,7 +128,7 @@ function Population(
         else
             constructorof(PM)(
                 dataset,
-                _init_tree(dataset, options, nlength, nfeatures, T, plugin_states),
+            _init_tree(dataset, options, nlength, nfeatures, T, plugin_states, rng),
                 options;
                 parent=-1,
                 deterministic=options.deterministic,
@@ -168,6 +175,7 @@ Create random population and score them on the dataset.
     loss_type::Type{L}=Nothing,
     npop=nothing,
     plugin_states::Tuple,
+    rng::AbstractRNG=default_rng(),
 ) where {T<:DATA_TYPE,L}
     @assert (population_size !== nothing) ⊻ (npop !== nothing)
     population_size = if npop === nothing
@@ -177,7 +185,7 @@ Create random population and score them on the dataset.
     end
     dataset = Dataset(X, y, L)
     update_baseline_loss!(dataset, options)
-    return Population(dataset; population_size, options, nfeatures, plugin_states)
+    return Population(dataset; population_size, options, nfeatures, plugin_states, rng)
 end
 
 function Base.copy(pop::P)::P where {T,L,N,PM,P<:Population{T,L,N,PM}}
@@ -189,9 +197,11 @@ function Base.copy(pop::P)::P where {T,L,N,PM,P<:Population{T,L,N,PM}}
 end
 
 # Sample random members of the population, and make a new one
-function sample_pop(pop::P, options::AbstractOptions)::P where {P<:Population}
+function sample_pop(
+    pop::P, options::AbstractOptions; rng::AbstractRNG=default_rng()
+)::P where {P<:Population}
     return Population(
-        StatsBase.sample(pop.members, options.tournament_selection_n; replace=false)
+        StatsBase.sample(rng, pop.members, options.tournament_selection_n; replace=false)
     )
 end
 
@@ -202,10 +212,11 @@ function best_of_sample(
     plugin_states::Tuple,
     dataset=nothing,
     selection_context=nothing,
+    rng::AbstractRNG=default_rng(),
 ) where {T,L,N}
     if options.parent_selection === :epsilon_lexicase
         context = if selection_context === nothing && dataset !== nothing
-            make_parent_selection_context(dataset, options)
+            make_parent_selection_context(dataset, options; rng)
         else
             selection_context
         end
@@ -220,11 +231,13 @@ function best_of_sample(
             selected === nothing || return copy(selected)
         end
     end
-    sample = sample_pop(pop, options)
-    return copy(_best_of_sample(sample.members, options; plugin_states))
+    sample = sample_pop(pop, options; rng)
+    return copy(_best_of_sample(sample.members, options; plugin_states, rng))
 end
 function _best_of_sample(
-    members::Vector{P}, options::AbstractOptions; plugin_states::Tuple
+    members::Vector{P}, options::AbstractOptions;
+    plugin_states::Tuple,
+    rng::AbstractRNG=default_rng(),
 ) where {T,L,N,P<:AbstractPopMember{T,L,N}}
     p = options.tournament_selection_p
     n = length(members)  # == tournament_selection_n
@@ -241,7 +254,7 @@ function _best_of_sample(
         argmin_fast(adjusted_costs)
     else
         # First, decide what place we take (usually 1st place wins):
-        tournament_winner = StatsBase.sample(get_tournament_selection_weights(options))
+        tournament_winner = StatsBase.sample(rng, get_tournament_selection_weights(options))
         # Then, find the member that won that place, given
         # their fitness:
         if tournament_winner == 1

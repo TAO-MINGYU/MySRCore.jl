@@ -565,6 +565,61 @@ function randomize_tree(
     return gen_random_tree_fixed_size(tree_size_to_generate, options, nfeatures, T, rng)
 end
 
+"""Rewrite one internal node from an inverse semantic target.
+
+This safe baseline keeps the replacement representation small: it uses the
+median (or mean for complex values) of the back-propagated target as a
+constant. Unsupported expression arities, shared graphs, and invalid inverse
+values are returned unchanged so enabling the mutation cannot corrupt a tree.
+"""
+function semantic_backprop_rewrite_random_node(
+    ex::AbstractExpression,
+    dataset::Dataset,
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng(),
+)
+    contents, context = get_contents_for_mutation(ex, rng)
+    rewritten = semantic_backprop_rewrite_random_node(contents, dataset, options, rng)
+    return with_contents_for_mutation(ex, rewritten, context)
+end
+
+function semantic_backprop_rewrite_random_node(
+    tree::AbstractExpressionNode{T,2},
+    dataset::Dataset,
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng(),
+) where {T<:DATA_TYPE}
+    tree.degree == 0 && return tree
+    preserve_sharing(tree) && return tree
+    candidates = [node for node in tree if node !== tree]
+    isempty(candidates) && return tree
+    node_to_invert = rand(rng, candidates)
+    target_values, success = eval_inverse_tree_array(
+        tree,
+        dataset.X,
+        options.operators,
+        node_to_invert,
+        T.(dataset.y),
+    )
+    (!success || is_bad_array(target_values) || isempty(target_values)) && return tree
+    representative = T <: Real ? median(target_values) : sum(target_values) / length(target_values)
+    isfinite(representative) || return tree
+    parent, index = _find_parent(tree, node_to_invert)
+    index == 0 && return tree
+    replacement = constructorof(typeof(node_to_invert))(; val=representative)
+    set_child!(parent, replacement, index)
+    return tree
+end
+
+function semantic_backprop_rewrite_random_node(
+    tree::AbstractExpressionNode{T,D},
+    dataset::Dataset,
+    options::AbstractOptions,
+    rng::AbstractRNG=default_rng(),
+) where {T<:DATA_TYPE,D}
+    return tree
+end
+
 """Create a random equation by appending random operators"""
 function gen_random_tree(
     length::Int,

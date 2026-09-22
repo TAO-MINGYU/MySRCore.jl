@@ -578,3 +578,14 @@
 - **修复**：未配置 population profile 时，migration compatibility 现在传递 `nothing`，不再把全局 `Options.operator_affinity` 误当作目标 profile，从而保持默认/HOF 路径的兼容行为。
 - **修复**：`PopulationProfileGroup` 在转换为 `Float64` 后重新检查有限性和正性；quota 取整前归一化通过容差检查的 share 总和，避免大 population 下出现无效剩余数。
 - **Verification**：完整 `test/runtests.jl` 通过；quota `17/17`、profile-group search integration `9/9`、MySR population migration bridge `4 passed`，Julia parse、Python compileall 与 diff check 均通过。
+
+## 2026-09-22 - Core quality v1: explicit epsilon, RNG streams, and safety hardening
+
+- **范围**：在 `feature/core-quality-v1-20260922` 隔离 worktree 按
+  `MYSRCORE_HEALTH_REVIEW.md` 实施第一阶段质量改良；canonical checkout 的源码和既有治理文档未被覆盖。
+- **API/算法**：Options 新增 `epsilon` 与 `epsilon_mode`（`:mad` 自适应默认、`:absolute`、`:relative`），并导出 `DEFAULT_EPSILON`/`DEFAULT_EPSILON_MODE`；保留旧 tournament 与 regularized-evolution 默认。新增默认关闭的 `SemanticBackpropMutation`，用 inverse semantic target 的稳健常数替换作为安全基线；mutation/crossover/parent-selection/cycle/optimization/migration 的核心随机决策改用显式 RNG 流。
+- **稳定性**：Options 关键约束改用 `ArgumentError`；AFP 在每轮缓存 dominance counts；survival/migration 结构哈希命中后追加递归结构确认，避免 hash collision 丢失候选；profile affinity 校验每个 source row 至少有正权重。
+- **影响路径**：`src/Options.jl`、`src/OptionsStruct.jl`、`src/ParentSelection.jl`、`src/Mutations.jl`、`src/MutationFunctions.jl`、`src/Mutate.jl`、`src/Crossover.jl`、`src/Population.jl`、`src/RegularizedEvolution.jl`、`src/SingleIteration.jl`、`src/Migration.jl`、`src/PopulationMigration.jl`、`src/SymbolicRegression.jl`、`test/runtests.jl`。
+- **Verification**：env_1_mysr 的 Julia 1.10.3，临时可写 depot/project 指向此 worktree；完整 `Pkg.test("MySRCore"; coverage=false)` 通过，Parent selection testset `39/39`，其余既有 testsets 全部通过；seed=42 的小型 serial search 重复运行表达式序列一致；`git diff --check` 通过。
+- **Local microbenchmark**：64×128 epsilon-lexicase absolute threshold 中位数约 `3.09e-5 s`；population=1、population_size=10、ncycles=4 的小型 serial search 热身后 3 次约 `0.00355–0.00413 s`（中位数 `0.00358 s`）。这些是诊断性本机数字，不代表 matched benchmark 或默认策略收益。
+- **边界/遗留**：semantic backprop 当前只对 `AbstractExpressionNode{T,2}` 做安全常数替换，默认关闭；跨线程/跨进程只保证独立 RNG 流和统计一致性，仍需正式 P/M matched benchmark 后决定是否切换默认 parent/survival 或提高新 mutation/crossover 权重；Python bridge 尚未新增 epsilon 参数映射。

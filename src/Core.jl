@@ -43,6 +43,7 @@ using .MutationsModule:
     BreakConnectionMutation,
     RotateTreeMutation,
     BacksolveMutation,
+    SemanticBackpropMutation,
     SimplifyMutation,
     RandomizeMutation,
     OptimizeMutation,

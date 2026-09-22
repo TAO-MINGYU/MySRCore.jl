@@ -1,5 +1,6 @@
 module CrossoverModule
 
+using Random: AbstractRNG, default_rng
 using DispatchDoctor: @unstable
 using DynamicExpressions: AbstractExpression
 using ..CoreModule:
@@ -96,6 +97,7 @@ function _crossover_with_tree_operator(
     tree_operator::F,
     trace_name::AbstractString;
     trace::MaybeTrace,
+    rng::AbstractRNG,
 ) where {T,L,N<:AbstractExpression,P<:AbstractPopMember{T,L,N},F<:Function}
     parent_tree1 = unwrap_dimensional_scale(member1.tree, options)
     parent_tree2 = unwrap_dimensional_scale(member2.tree, options)
@@ -103,7 +105,7 @@ function _crossover_with_tree_operator(
     coefficient1 === nothing && (coefficient1 = dimensional_scale_identity(T))
     coefficient2 = dimensional_scale_coefficient(member2.tree, options)
     coefficient2 === nothing && (coefficient2 = dimensional_scale_identity(T))
-    child_tree1, child_tree2 = tree_operator(parent_tree1, parent_tree2)
+    child_tree1, child_tree2 = tree_operator(parent_tree1, parent_tree2, rng)
     child_tree1 = wrap_dimensional_scale(child_tree1, options; coefficient=coefficient1)
     child_tree2 = wrap_dimensional_scale(child_tree2, options; coefficient=coefficient2)
     trace_mutation_type!(trace, trace_name)
@@ -116,10 +118,11 @@ function crossover(
     ::SubtreeCrossover,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {T,L,N<:AbstractExpression,P<:AbstractPopMember{T,L,N}}
     return _crossover_with_tree_operator(
-        member1, member2, options, crossover_trees, "subtree_crossover"; trace
+        member1, member2, options, crossover_trees, "subtree_crossover"; trace, rng
     )
 end
 
@@ -129,13 +132,14 @@ function crossover(
     crossover::SizeMatchedCrossover,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {T,L,N<:AbstractExpression,P<:AbstractPopMember{T,L,N}}
-    operator = (tree1, tree2) -> size_matched_crossover_trees(
-        tree1, tree2, crossover.size_tolerance
+    operator = (tree1, tree2, rng) -> size_matched_crossover_trees(
+        tree1, tree2, crossover.size_tolerance, rng
     )
     return _crossover_with_tree_operator(
-        member1, member2, options, operator, "size_matched_crossover"; trace
+        member1, member2, options, operator, "size_matched_crossover"; trace, rng
     )
 end
 
@@ -161,6 +165,7 @@ end
     eval_context=nothing,
     plugin_states::Tuple=ntuple(Returns(nothing), length(options.plugins)),
     surrogate_state=nothing,
+    rng::AbstractRNG=default_rng(),
 )::Tuple{P,P,Bool,Float64} where {T,L,D<:Dataset{T,L},N,P<:AbstractPopMember{T,L,N}}
     crossovers = options.crossovers
     # Skip sampling for a single entry so the default configuration consumes
@@ -168,7 +173,7 @@ end
     crossover_choice = if length(crossovers) == 1
         first(crossovers).first
     else
-        crossovers[_sample_mutation(crossovers)].first
+        crossovers[_sample_mutation(crossovers; rng)].first
     end
     # Preserve concrete crossover dispatch through the hot path.
     return _dispatch_crossover_generation(
@@ -182,6 +187,7 @@ end
         eval_context,
         plugin_states,
         surrogate_state,
+        rng,
     )
 end
 
@@ -196,6 +202,7 @@ function _crossover_generation(
     eval_context,
     plugin_states::Tuple,
     surrogate_state,
+    rng::AbstractRNG,
 )::Tuple{
     P,P,Bool,Float64
 } where {T,L,D<:Dataset{T,L},N,P<:AbstractPopMember{T,L,N},C<:AbstractCrossover}
@@ -221,6 +228,7 @@ function _crossover_generation(
             nfeatures,
             attempt=num_tries,
             plugin_states,
+            rng,
         )::CrossoverResult{N}
         num_evals += result.num_evals
         child_tree1, child_tree2 = result.child1, result.child2

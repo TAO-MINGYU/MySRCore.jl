@@ -159,6 +159,8 @@ end
     SR = MySRCore.SymbolicRegression
     @test SR.Options().parent_selection == :tournament
     @test SR.Options().survival_strategy == :regularized_evolution
+    @test SR.Options().epsilon === SR.DEFAULT_EPSILON
+    @test SR.Options().epsilon_mode == SR.DEFAULT_EPSILON_MODE
     @test SR.Options(
         parent_selection=:epsilon_lexicase,
         survival_strategy=:age_fitness_pareto,
@@ -170,10 +172,56 @@ end
     ).survival_strategy == :competitive_age_fitness
     @test_throws ArgumentError SR.Options(parent_selection=:unknown)
     @test_throws ArgumentError SR.Options(survival_strategy=:unknown)
+    @test_throws ArgumentError SR.Options(epsilon_mode=:absolute)
+    @test_throws ArgumentError SR.Options(epsilon=-1.0)
+    absolute_options = SR.Options(
+        parent_selection=:epsilon_lexicase,
+        epsilon=0.1,
+        epsilon_mode=:absolute,
+        default_plugins=(),
+    )
+    @test absolute_options.epsilon == 0.1
+    @test absolute_options.epsilon_mode == :absolute
 
     errors = [0.0 1.0; 2.0 3.0]
     @test SR.epsilon_lexicase_index(errors; rng=MersenneTwister(1)) == 1
     @test SR.epsilon_lexicase_index(errors; rng=MersenneTwister(2)) == 1
+    @test SR.epsilon_lexicase_index(
+        errors;
+        rng=MersenneTwister(1),
+        epsilon=0.0,
+        epsilon_mode=:absolute,
+    ) == 1
+    @test SR.epsilon_lexicase_index(
+        errors;
+        rng=MersenneTwister(1),
+        epsilon=0.05,
+        epsilon_mode=:relative,
+    ) in 1:size(errors, 1)
+
+    semantic_options = SR.Options(
+        binary_operators=(+, -),
+        unary_operators=(),
+        mutations=[SR.SemanticBackpropMutation() => 1.0],
+        default_plugins=(),
+    )
+    semantic_dataset = SR.Dataset(
+        reshape(Float64[1, 2, 3], 1, :),
+        Float64[2, 3, 4],
+    )
+    semantic_tree = SR.parse_expression(
+        "x1 + x1";
+        operators=semantic_options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    semantic_rewrite = SR.MutationFunctionsModule.semantic_backprop_rewrite_random_node(
+        semantic_tree,
+        semantic_dataset,
+        semantic_options,
+        MersenneTwister(4),
+    )
+    @test any(node -> node.degree == 0 && node.constant, SR.get_tree(semantic_rewrite))
 
     pool = [
         (cost=1.0, birth=1),

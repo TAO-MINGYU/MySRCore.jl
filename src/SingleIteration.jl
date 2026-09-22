@@ -1,5 +1,6 @@
 module SingleIterationModule
 
+using Random: AbstractRNG, default_rng, rand
 using ADTypes: AutoEnzyme
 using DynamicExpressions: AbstractExpression, simplify_tree!, combine_operators
 using ..UtilsModule: @threads_if, strictmap
@@ -39,6 +40,7 @@ function s_r_cycle(
     plugin_states::Tuple,
     surrogate_snapshot=nothing,
     return_surrogate_state::Bool=false,
+    rng::AbstractRNG=default_rng(),
 ) where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:Population{T,L,N}}
     best_examples_seen = HallOfFame(options, dataset)
     num_evals = 0.0
@@ -74,6 +76,7 @@ function s_r_cycle(
             best_seen=best_examples_seen,
             eval_context,
             surrogate_state=surrogate_state,
+            rng,
         )
         num_evals += tmp_num_evals
         update_hall_of_fame!(best_examples_seen, pop.members, batched_dataset, options)
@@ -91,10 +94,15 @@ function s_r_cycle(
 end
 
 function optimize_and_simplify_population(
-    dataset::D, pop::P, options::AbstractOptions, curmaxsize::Int, trace::MaybeTrace
+    dataset::D,
+    pop::P,
+    options::AbstractOptions,
+    curmaxsize::Int,
+    trace::MaybeTrace;
+    rng::AbstractRNG=default_rng(),
 )::Tuple{P,Float64} where {T,L,D<:Dataset{T,L},P<:Population{T,L}}
     array_num_evals = zeros(Float64, pop.n)
-    do_optimization = rand(pop.n) .< options.optimizer_probability
+    do_optimization = rand(rng, pop.n) .< options.optimizer_probability
     # Note: we have to turn off this threading loop due to Enzyme, since we need
     # to manually allocate a new task with a larger stack for Enzyme.
     should_thread = !(options.deterministic) && !(isa(options.autodiff_backend, AutoEnzyme))
