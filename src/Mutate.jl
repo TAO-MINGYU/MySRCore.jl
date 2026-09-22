@@ -1,6 +1,6 @@
 module MutateModule
 
-using Random: AbstractRNG, default_rng
+using Random: AbstractRNG, default_rng, rand
 using DispatchDoctor: @unstable
 using DynamicExpressions:
     AbstractExpression,
@@ -26,6 +26,7 @@ using ..CoreModule:
     BreakConnectionMutation,
     RotateTreeMutation,
     BacksolveMutation,
+    SemanticBackpropMutation,
     SimplifyMutation,
     RandomizeMutation,
     OptimizeMutation,
@@ -63,6 +64,7 @@ using ..MutationFunctionsModule:
     randomly_rotate_tree!,
     randomize_tree,
     backsolve_rewrite_random_node,
+    semantic_backprop_rewrite_random_node,
     get_contents_for_mutation,
     with_contents_for_mutation,
     get_nfeatures_for_mutation
@@ -259,7 +261,10 @@ function condition_mutate_constant!(
     return nothing
 end
 
-@unstable function _sample_mutation(mutations::AbstractVector{<:Pair{<:Any,<:Real}})
+@unstable function _sample_mutation(
+    mutations::AbstractVector{<:Pair{<:Any,<:Real}};
+    rng::AbstractRNG=default_rng(),
+)
     total_weight = 0.0
     for (_, weight) in mutations
         weight >= 0.0 || throw(ArgumentError("Weights must be nonnegative."))
@@ -267,7 +272,7 @@ end
     end
     total_weight > 0.0 || throw(ArgumentError("At least one weight must be positive."))
 
-    threshold = rand() * total_weight
+    threshold = rand(rng) * total_weight
     cumulative_weight = 0.0
     for (i, (_, weight)) in enumerate(mutations)
         cumulative_weight += weight
@@ -311,6 +316,7 @@ end
     eval_context=nothing,
     population_for_backsolve=nothing,
     surrogate_state::Union{Nothing,SurrogateState}=nothing,
+    rng::AbstractRNG=default_rng(),
 )::Tuple{
     P,Bool,Float64
 } where {T,L,D<:Dataset{T,L},N<:AbstractExpression{T},P<:AbstractPopMember{T,L,N}}
@@ -331,7 +337,7 @@ end
         )
     end
 
-    mutation_idx = _sample_mutation(weights)
+    mutation_idx = _sample_mutation(weights; rng)
     mutation_choice = weights[mutation_idx].first
 
     # Preserve concrete mutation dispatch through the hot path.
@@ -352,6 +358,7 @@ end
         population_for_backsolve,
         surrogate_state,
         num_evals,
+        rng,
     )
 end
 
@@ -372,6 +379,7 @@ function _next_generation(
     population_for_backsolve,
     surrogate_state::Union{Nothing,SurrogateState},
     num_evals::Float64,
+    rng::AbstractRNG,
 )::Tuple{
     P,Bool,Float64
 } where {
@@ -424,6 +432,7 @@ function _next_generation(
             nfeatures,
             plugin_states,
             population_for_backsolve,
+            rng,
         )
         mutation_result::AbstractMutationResult{N,P}
         num_evals += mutation_result.num_evals::Float64
@@ -629,7 +638,7 @@ function _next_generation(
         end,
     )
 
-    if probChange < rand()
+    if probChange < rand(rng)
         trace_mutation_result!(tmp_trace, "reject", "acceptance")
         _fire_on_mutation_end!(
             options,
@@ -720,10 +729,11 @@ function mutate!(
     options::AbstractOptions;
     trace::MaybeTrace,
     context::Union{Nothing,ConstantMutationContext}=nothing,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
     scale = isnothing(context) ? 1.0 : context.scale
-    new_tree = mutate_constant(new_tree, scale, options, m)
+    new_tree = mutate_constant(new_tree, scale, options, m, rng)
     trace_mutation_type!(trace, "mutate_constant")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -734,11 +744,12 @@ function mutate!(
     ::OperatorMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     dataset=nothing,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
     scope = dimension_policy(options) === :compatible ? :internal : :full
-    new_tree = mutate_operator(new_tree, options; dataset, scope)
+    new_tree = mutate_operator(new_tree, options, rng; dataset, scope)
     trace_mutation_type!(trace, "mutate_operator")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -749,12 +760,13 @@ function mutate!(
     ::FeatureMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     nfeatures,
     dataset=nothing,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
     scope = dimension_policy(options) === :compatible ? :internal : :full
-    new_tree = mutate_feature(new_tree, nfeatures; dataset, options, scope)
+    new_tree = mutate_feature(new_tree, nfeatures, rng; dataset, options, scope)
     trace_mutation_type!(trace, "mutate_feature")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -765,9 +777,10 @@ function mutate!(
     ::SwapOperandsMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = swap_operands(new_tree)
+    new_tree = swap_operands(new_tree, rng)
     trace_mutation_type!(trace, "swap_operands")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -778,14 +791,15 @@ function mutate!(
     ::AddNodeMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     nfeatures,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    if rand() < 0.5
-        new_tree = append_random_op(new_tree, options, nfeatures)
+    if rand(rng) < 0.5
+        new_tree = append_random_op(new_tree, options, nfeatures, rng)
         trace_mutation_type!(trace, "add_node:append")
     else
-        new_tree = prepend_random_op(new_tree, options, nfeatures)
+        new_tree = prepend_random_op(new_tree, options, nfeatures, rng)
         trace_mutation_type!(trace, "add_node:prepend")
     end
     return MutationResult{N,P}(; tree=new_tree)
@@ -797,10 +811,11 @@ function mutate!(
     ::InsertNodeMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     nfeatures,
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = insert_random_op(new_tree, options, nfeatures)
+    new_tree = insert_random_op(new_tree, options, nfeatures, rng)
     trace_mutation_type!(trace, "insert_node")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -811,9 +826,10 @@ function mutate!(
     ::DeleteNodeMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = delete_random_op!(new_tree)
+    new_tree = delete_random_op!(new_tree, rng)
     trace_mutation_type!(trace, "delete_node")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -824,9 +840,10 @@ function mutate!(
     ::FormConnectionMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = form_random_connection!(new_tree)
+    new_tree = form_random_connection!(new_tree, rng)
     trace_mutation_type!(trace, "form_connection")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -837,9 +854,10 @@ function mutate!(
     ::BreakConnectionMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = break_random_connection!(new_tree)
+    new_tree = break_random_connection!(new_tree, rng)
     trace_mutation_type!(trace, "break_connection")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -850,9 +868,10 @@ function mutate!(
     ::RotateTreeMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     kws...,
 ) where {N<:AbstractExpression,P<:AbstractPopMember}
-    new_tree = randomly_rotate_tree!(new_tree)
+    new_tree = randomly_rotate_tree!(new_tree, rng)
     trace_mutation_type!(trace, "rotate_tree")
     return MutationResult{N,P}(; tree=new_tree)
 end
@@ -863,6 +882,7 @@ function mutate!(
     m::BacksolveMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     dataset::Dataset,
     population_for_backsolve=nothing,
     kws...,
@@ -870,11 +890,27 @@ function mutate!(
     new_tree = backsolve_rewrite_random_node(
         new_tree,
         dataset,
-        options;
+        options,
+        rng;
         backsolve_options=m,
         population_for_backsolve=population_for_backsolve,
     )
     trace_mutation_type!(trace, "backsolve")
+    return MutationResult{N,P}(; tree=new_tree)
+end
+
+function mutate!(
+    new_tree::N,
+    parent_member::P,
+    ::SemanticBackpropMutation,
+    options::AbstractOptions;
+    trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
+    dataset::Dataset,
+    kws...,
+) where {N<:AbstractExpression,P<:AbstractPopMember}
+    new_tree = semantic_backprop_rewrite_random_node(new_tree, dataset, options, rng)
+    trace_mutation_type!(trace, "semantic_backprop")
     return MutationResult{N,P}(; tree=new_tree)
 end
 
@@ -885,6 +921,7 @@ function mutate!(
     ::SimplifyMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     dataset::Dataset,
     parent_ref,
     kws...,
@@ -920,6 +957,7 @@ function mutate!(
     ::RandomizeMutation,
     options::AbstractOptions;
     trace::MaybeTrace,
+    rng::AbstractRNG=default_rng(),
     dataset::Dataset,
     curmaxsize,
     nfeatures,
@@ -929,7 +967,6 @@ function mutate!(
         dimensional_scale_coefficient(new_tree, options) : nothing
     mutation_base = dimensional_coefficient === nothing ?
         new_tree : unwrap_dimensional_scale(new_tree, options)
-    rng = default_rng()
     mutation_contents, mutation_context = get_contents_for_mutation(mutation_base, rng)
     local_nfeatures = get_nfeatures_for_mutation(
         mutation_base, mutation_context, nfeatures

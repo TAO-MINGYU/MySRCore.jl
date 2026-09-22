@@ -1,5 +1,6 @@
 module RegularizedEvolutionModule
 
+using Random: AbstractRNG, default_rng, rand
 using ..CoreModule:
     AbstractOptions,
     Dataset,
@@ -54,7 +55,7 @@ Engine-owned state for one mutation step. Mutable contents accumulate every
 middleware attempt so evaluation counts, Hall-of-Fame updates, and tracing
 stay under engine control.
 """
-struct MutationStep{D,P,O,S,E,H,A,M,R}
+struct MutationStep{D,P,O,S,E,H,A,M,R,G}
     dataset::D
     population::P
     curmaxsize::Int
@@ -66,6 +67,7 @@ struct MutationStep{D,P,O,S,E,H,A,M,R}
     attempted_members::M
     traced_steps::R
     surrogate_state::Union{Nothing,SurrogateState}
+    rng::G
 end
 
 function (step::MutationStep)(parent)
@@ -80,6 +82,7 @@ function (step::MutationStep)(parent)
         eval_context=step.eval_context,
         population_for_backsolve=step.population,
         surrogate_state=step.surrogate_state,
+        rng=step.rng,
     )
     attempt_id = isnothing(step.attempted_results) ? 1 : length(step.attempted_results) + 1
     result = MutationStepResult(member, accepted, attempt_id, num_evals)
@@ -188,11 +191,12 @@ function reg_evol_cycle(
     best_seen::HallOfFame,
     eval_context=nothing,
     surrogate_state::Union{Nothing,SurrogateState}=nothing,
+    rng::AbstractRNG=default_rng(),
 )::Tuple{P,Float64} where {T<:DATA_TYPE,L<:LOSS_TYPE,P<:Population{T,L}}
     num_evals = 0.0
     n_evol_cycles = ceil(Int, pop.n / options.tournament_selection_n)
     selection_context = if options.parent_selection === :epsilon_lexicase
-        make_parent_selection_context(dataset, options)
+        make_parent_selection_context(dataset, options; rng)
     else
         nothing
     end
@@ -214,17 +218,19 @@ function reg_evol_cycle(
         attempted_members,
         traced_steps,
         surrogate_state,
+        rng,
     )
     wrapped_step = build_mutation_step(mutation_wrappers, base_step)
 
     for i in 1:n_evol_cycles
-        if rand() > options.crossover_probability
+        if rand(rng) > options.crossover_probability
             allstar = best_of_sample(
                 pop,
                 options;
                 plugin_states,
                 dataset,
                 selection_context,
+                rng,
             )
             reset!(base_step)
             result = wrapped_step(allstar)
@@ -277,6 +283,7 @@ function reg_evol_cycle(
                 plugin_states,
                 dataset,
                 selection_context,
+                rng,
             )
             allstar2 = best_of_sample(
                 pop,
@@ -284,6 +291,7 @@ function reg_evol_cycle(
                 plugin_states,
                 dataset,
                 selection_context,
+                rng,
             )
 
             crossover_trace = new_trace(trace)
@@ -297,6 +305,7 @@ function reg_evol_cycle(
                 plugin_states,
                 eval_context,
                 surrogate_state=surrogate_state,
+                rng,
             )
             num_evals += tmp_num_evals
             if crossover_accepted

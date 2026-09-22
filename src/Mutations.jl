@@ -102,6 +102,16 @@ Base.@kwdef struct BacksolveMutation <: AbstractMutation
     max_iter::Int = 10
 end
 
+"""
+    SemanticBackpropMutation()
+
+Use the inverse evaluation path to choose a target value for a random internal
+subtree, then replace that subtree with a robust constant summary of the target.
+The mutation is deliberately opt-in (default weight `0.0`) until broader
+benchmarks establish a useful replacement fitter for each operator set.
+"""
+struct SemanticBackpropMutation <: AbstractMutation end
+
 """Algebraically simplify the tree (e.g. fold constants)."""
 struct SimplifyMutation <: AbstractMutation end
 
@@ -126,6 +136,7 @@ const BUILTIN_MUTATION_TYPES = (
     BreakConnectionMutation,
     RotateTreeMutation,
     BacksolveMutation,
+    SemanticBackpropMutation,
     SimplifyMutation,
     RandomizeMutation,
     OptimizeMutation,
@@ -153,6 +164,7 @@ function default_mutations()
         DoNothingMutation() => 0.431,
         OptimizeMutation() => 0.0,
         BacksolveMutation() => 0.0,
+        SemanticBackpropMutation() => 0.0,
         FormConnectionMutation() => 0.5,
         BreakConnectionMutation() => 0.1,
     ]

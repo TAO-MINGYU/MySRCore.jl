@@ -296,6 +296,10 @@ struct Options{
     tournament_selection_n::Int
     tournament_selection_p::Float64
     parent_selection::Symbol
+    # Epsilon-lexicase uses adaptive MAD by default. A numeric epsilon is an
+    # optional floor for the MAD threshold (or the scale for other modes).
+    epsilon::Union{Nothing,Float64}
+    epsilon_mode::Symbol
     survival_strategy::Symbol
     parsimony::Float64
     # MySR formula type controls the dimensional contract.
@@ -483,6 +487,8 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :nested_constraints,
         :complexity_mapping,
         :parent_selection,
+        :epsilon,
+        :epsilon_mode,
         :survival_strategy,
         :formula_type,
         :mutation_affinity,

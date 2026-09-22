@@ -18,6 +18,10 @@ using ..CoreModule:
 using ..LossFunctionsModule: eval_case_losses
 using ..PopMemberModule: AbstractPopMember
 
+"""System defaults for epsilon-lexicase thresholding."""
+const DEFAULT_EPSILON = nothing
+const DEFAULT_EPSILON_MODE = :mad
+
 """State shared by all parent draws in one evolutionary cycle."""
 mutable struct ParentSelectionContext{D,R}
     dataset::D
@@ -81,11 +85,36 @@ end
     return max(zero(T), median(abs.(finite_values .- center)))
 end
 
+function _epsilon_value(
+    values::AbstractVector{T},
+    best::T;
+    epsilon::Union{Nothing,Real}=DEFAULT_EPSILON,
+    epsilon_mode::Symbol=DEFAULT_EPSILON_MODE,
+) where {T<:Real}
+    epsilon_mode in (:mad, :absolute, :relative) ||
+        throw(ArgumentError("epsilon_mode must be :mad, :absolute, or :relative"))
+    finite_values = T[value for value in values if isfinite(value)]
+    isempty(finite_values) && return T(Inf)
+    if epsilon_mode === :mad
+        adaptive = _mad(finite_values)
+        return epsilon === nothing ? adaptive : max(adaptive, T(epsilon))
+    end
+    epsilon === nothing &&
+        throw(ArgumentError("epsilon is required for epsilon_mode=$(epsilon_mode)"))
+    value = T(epsilon)
+    isfinite(value) && value >= zero(T) ||
+        throw(ArgumentError("epsilon must be finite and non-negative"))
+    return epsilon_mode === :absolute ? value : value * max(abs(best), one(T))
+end
+
 function _epsilon_lexicase_index(
     candidate_indices::Vector{Int},
     case_indices::Vector{Int},
     value_at::F,
     rng::AbstractRNG,
+    ;
+    epsilon::Union{Nothing,Real}=DEFAULT_EPSILON,
+    epsilon_mode::Symbol=DEFAULT_EPSILON_MODE,
 ) where {F}
     isempty(candidate_indices) && throw(ArgumentError("epsilon-lexicase needs at least one candidate"))
     isempty(case_indices) && return rand(rng, candidate_indices)
@@ -96,8 +125,9 @@ function _epsilon_lexicase_index(
         finite_values = [value for value in values if isfinite(value)]
         isempty(finite_values) && continue
         best = minimum(finite_values)
-        epsilon = _mad(values)
-        threshold = best + epsilon
+        threshold = best + _epsilon_value(
+            values, best; epsilon, epsilon_mode
+        )
         kept = Int[
             candidate for (candidate, value) in zip(candidates, values) if value <= threshold
         ]
@@ -109,7 +139,10 @@ end
 
 """Pure epsilon-lexicase selector used by tests and algorithm diagnostics."""
 function epsilon_lexicase_index(
-    errors::AbstractMatrix{T}; rng::AbstractRNG=default_rng()
+    errors::AbstractMatrix{T};
+    rng::AbstractRNG=default_rng(),
+    epsilon::Union{Nothing,Real}=DEFAULT_EPSILON,
+    epsilon_mode::Symbol=DEFAULT_EPSILON_MODE,
 ) where {T<:Real}
     n_candidates, n_cases = size(errors)
     n_candidates > 0 || throw(ArgumentError("errors must contain at least one candidate"))
@@ -117,7 +150,12 @@ function epsilon_lexicase_index(
     candidates = collect(1:n_candidates)
     cases = collect(1:n_cases)
     return _epsilon_lexicase_index(
-        candidates, cases, (candidate, case_index) -> errors[candidate, case_index], rng
+        candidates,
+        cases,
+        (candidate, case_index) -> errors[candidate, case_index],
+        rng;
+        epsilon,
+        epsilon_mode,
     )
 end
 
@@ -152,7 +190,12 @@ function epsilon_lexicase_parent(
         return errors[case_index] * multiplier
     end
     selected_index = _epsilon_lexicase_index(
-        candidate_indices, case_indices, value_at, context.rng
+        candidate_indices,
+        case_indices,
+        value_at,
+        context.rng;
+        epsilon=options.epsilon,
+        epsilon_mode=options.epsilon_mode,
     )
     return members[selected_index]
 end
@@ -173,14 +216,20 @@ function _afp_worse_index(
     members,
     active::Vector{Int};
     prefer_simple::Bool=false,
+    dominance_counts=nothing,
 )
     worst = first(active)
     worst_dominance = -1
     for candidate in active
-        dominance_count = count(
-            other -> other != candidate && _dominates(members[other], members[candidate]),
-            active,
-        )
+        dominance_count = if dominance_counts === nothing
+            count(
+                other -> other != candidate &&
+                    _dominates(members[other], members[candidate]),
+                active,
+            )
+        else
+            dominance_counts[candidate]
+        end
         candidate_cost = _afp_cost(members[candidate])
         worst_cost = _afp_cost(members[worst])
         same_rank = dominance_count == worst_dominance
@@ -208,6 +257,18 @@ function _afp_worse_index(
     return worst
 end
 
+"""Compute AFP dominance counts once for the current active pool."""
+function _afp_dominance_counts(members, active::Vector{Int})
+    counts = zeros(Int, length(members))
+    for candidate in active
+        for other in active
+            other == candidate && continue
+            _dominates(members[other], members[candidate]) && (counts[candidate] += 1)
+        end
+    end
+    return counts
+end
+
 """Return survivors from a parent-plus-offspring pool using AFP pressure.
 
 `birth` is MySRCore's monotonic creation order.  Larger values are younger,
@@ -222,12 +283,15 @@ function age_fitness_pareto_survivor_indices(
         throw(ArgumentError("AFP capacity must be between zero and pool size"))
     active = collect(eachindex(members))
     while length(active) > capacity
+        dominance_counts = _afp_dominance_counts(members, active)
         deleteat!(
             active,
-            findfirst(
-                ==(_afp_worse_index(members, active; prefer_simple=prefer_simple)),
-                active,
-            ),
+            findfirst(==(_afp_worse_index(
+                members,
+                active;
+                prefer_simple,
+                dominance_counts,
+            )), active),
         )
     end
     return active
@@ -271,6 +335,29 @@ _survival_structural_hash(expression::AbstractExpression) =
     return _survival_structural_hash(member.tree)
 end
 
+"""Collision-safe equality for the structural signature used by survival."""
+function _survival_structurally_equal(
+    a::AbstractExpressionNode, b::AbstractExpressionNode
+)
+    a.degree == b.degree || return false
+    if a.degree == 0
+        a.constant == b.constant || return false
+        return a.constant || a.feature == b.feature
+    end
+    a.op == b.op || return false
+    for child_index in 1:a.degree
+        _survival_structurally_equal(
+            get_child(a, child_index), get_child(b, child_index)
+        ) || return false
+    end
+    return true
+end
+
+_survival_structurally_equal(a::AbstractExpression, b::AbstractExpression) =
+    _survival_structurally_equal(get_tree(a), get_tree(b))
+_survival_structurally_equal(a, b) =
+    _survival_structurally_equal(a.tree, b.tree)
+
 @inline function _candidate_preferred(a, b, index_a::Int, index_b::Int)
     cost_a, cost_b = _afp_cost(a), _afp_cost(b)
     cost_a < cost_b && return true
@@ -297,7 +384,7 @@ function _child_wins_parent(child, parent)
     child_complexity > parent_complexity && return false
 
     # An equal-cost copy of the parent is not an evolutionary improvement.
-    return _survival_structural_hash(child) != _survival_structural_hash(parent)
+    return !_survival_structurally_equal(child, parent)
 end
 
 """
@@ -348,26 +435,43 @@ function competitive_survivor_indices(
     capacity == 0 && return Int[]
 
     # Keep only the best representative of each structural shape before AFP.
-    representatives = Dict{UInt,Int}()
+    # Hashes are only an index. Keep a small bucket and confirm structural
+    # equality before treating two candidates as duplicates so a hash
+    # collision cannot silently discard a valid expression.
+    representatives = Dict{UInt,Vector{Int}}()
     duplicate_indices = Int[]
     for candidate_index in eligible
         signature = _survival_structural_hash(candidates[candidate_index])
-        representative = get(representatives, signature, 0)
-        if representative == 0
-            representatives[signature] = candidate_index
-        elseif _candidate_preferred(
-            candidates[candidate_index], candidates[representative], candidate_index, representative
+        bucket = get!(representatives, signature) do
+            Int[]
+        end
+        duplicate_slot = findfirst(
+            representative -> _survival_structurally_equal(
+                candidates[candidate_index], candidates[representative]
+            ),
+            bucket,
         )
-            push!(duplicate_indices, representative)
-            representatives[signature] = candidate_index
+        if duplicate_slot === nothing
+            push!(bucket, candidate_index)
         else
-            push!(duplicate_indices, candidate_index)
+            representative = bucket[duplicate_slot]
+            if _candidate_preferred(
+                candidates[candidate_index],
+                candidates[representative],
+                candidate_index,
+                representative,
+            )
+                push!(duplicate_indices, representative)
+                bucket[duplicate_slot] = candidate_index
+            else
+                push!(duplicate_indices, candidate_index)
+            end
         end
     end
 
     # Hash-table iteration order is not a search policy.  Restore candidate
     # order before AFP so deterministic searches do not depend on hash layout.
-    representative_indices = sort!(collect(values(representatives)))
+    representative_indices = sort!(reduce(vcat, values(representatives); init=Int[]))
     if length(representative_indices) >= capacity
         representative_members = candidates[representative_indices]
         survivor_local = age_fitness_pareto_survivor_indices(

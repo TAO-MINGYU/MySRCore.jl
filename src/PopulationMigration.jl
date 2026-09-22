@@ -101,6 +101,10 @@ function _validate_profile(profile::IslandProfile, options::AbstractOptions)
                 ))
             all(isfinite, matrix) && all(>=(0), matrix) ||
                 throw(ArgumentError("IslandProfile operator affinity entries must be finite and nonnegative."))
+            (isempty(matrix) || all(any(>(0), row) for row in eachrow(matrix))) ||
+                throw(ArgumentError(
+                    "IslandProfile operator affinity must leave every source operator with a positive destination weight."
+                ))
         end
     end
     profile.mutation_weights === nothing ||

@@ -24,6 +24,24 @@ end
 
 _structural_hash(expression::AbstractExpression) = _structural_hash(get_tree(expression))
 
+function _structurally_equal(a::AbstractExpressionNode, b::AbstractExpressionNode)
+    a.degree == b.degree || return false
+    if a.degree == 0
+        a.constant == b.constant || return false
+        return a.constant || a.feature == b.feature
+    end
+    a.op == b.op || return false
+    for child_index in 1:a.degree
+        _structurally_equal(get_child(a, child_index), get_child(b, child_index)) ||
+            return false
+    end
+    return true
+end
+
+_structurally_equal(a::AbstractExpression, b::AbstractExpression) =
+    _structurally_equal(get_tree(a), get_tree(b))
+_structurally_equal(a, b) = _structurally_equal(a.tree, b.tree)
+
 function _profile_compatible(member::AbstractPopMember, profile)
     profile === nothing && return true
     affinity = profile.operator_affinity
@@ -41,10 +59,14 @@ end
 function _novel_migration_candidates(candidates, destination, profile)
     isempty(candidates) && return candidates
     ordered = sort(candidates; by=member -> member.cost)
-    seen = Set{UInt}()
+    # Hashes are only a fast index. Store representatives in buckets and
+    # confirm structural equality before suppressing a candidate.
+    seen = Dict{UInt,Vector{eltype(candidates)}}()
     if destination !== nothing
         for member in destination.members
-            push!(seen, _structural_hash(member.tree))
+            push!(get!(seen, _structural_hash(member.tree)) do
+                eltype(candidates)[]
+            end, member)
         end
     end
     compatible = eltype(candidates)[]
@@ -53,9 +75,12 @@ function _novel_migration_candidates(candidates, destination, profile)
         _profile_compatible(member, profile) || continue
         push!(compatible, member)
         signature = _structural_hash(member.tree)
-        signature in seen && continue
+        bucket = get!(seen, signature) do
+            eltype(candidates)[]
+        end
+        any(existing -> _structurally_equal(existing, member), bucket) && continue
         push!(novel, member)
-        push!(seen, signature)
+        push!(bucket, member)
     end
     # A specialised profile must not silently receive an incompatible member.
     # If every legal candidate is already represented locally, retain the best
