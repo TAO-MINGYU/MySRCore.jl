@@ -6,6 +6,16 @@
 
 后续重大变更至少记录：日期、变更类型、影响范围、原因、修改路径、结果/验证证据、遗留风险和后续行动。
 
+## 2026-09-22 - 建立 MySRCore 第一阶段体检与改良思考文档
+
+- 变更类型：设计审查与后续开发入口。
+- 影响范围：`MYSRCORE_HEALTH_REVIEW.md`；未修改 Julia 源码、测试、Project/Manifest 或公共 API。
+- 目的：围绕 parent selection、mutation/crossover、survival、loss/uncertainty、population profile 和 migration，记录当前实现、与目标默认行为的差距、跨领域问题和后续算法提案。
+- 基线：`main@87b5d82`，版本线 `1.1.3`；上游参照为 `SymbolicRegression.jl 2.0.0-beta.8`。
+- 证据规则：文档区分 `Confirmed`、`Decision`、`Unknown`、`Proposal`；未把局部测试或 smoke 解释为性能提升证据。
+- 验证：已只读核对 `Options`、`ParentSelection`、mutation/crossover、loss、profile/migration、搜索主循环和 `test/runtests.jl`；文档创建后执行 Markdown 内容检查与 `git diff --check`。
+- 遗留问题：epsilon 公共 API/default、semantic back-propagation、semantic crossover、默认策略切换、RNG 契约、loss calibration 和匹配 benchmark 均未在本次实现。
+
 ## 2026-09-04 - 建立文件夹级说明与日志约定
 
 - 变更类型：结构与工作流规范化。
