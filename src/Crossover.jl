@@ -253,6 +253,7 @@ function _crossover_generation(
         options,
         afterSize1,
         member1.cost,
+        rng=rng,
     )
     surrogate_decision2 = consider_surrogate!(
         surrogate_state,
@@ -261,6 +262,7 @@ function _crossover_generation(
         options,
         afterSize2,
         member2.cost,
+        rng=rng,
     )
     if !surrogate_decision1.evaluate || !surrogate_decision2.evaluate
         trace_mutation_result!(trace, "reject", "surrogate_rejected")

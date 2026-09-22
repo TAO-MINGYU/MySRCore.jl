@@ -1,6 +1,6 @@
 module SurrogateModule
 
-using Random: rand
+using Random: AbstractRNG, default_rng, rand
 using DynamicExpressions: AbstractExpression, AbstractExpressionNode, eval_tree_array
 
 using ..CoreModule: AbstractOptions, Dataset
@@ -337,6 +337,8 @@ function consider_surrogate!(
     options::AbstractOptions,
     complexity::Integer,
     parent_cost::Real,
+    ;
+    rng::AbstractRNG=default_rng(),
 )
     state === nothing && return SurrogateDecision(true, nothing, nothing, nothing)
     state.proposals += 1
@@ -365,7 +367,7 @@ function consider_surrogate!(
     uncertainty_scale = Float64(_option(options, :surrogate_uncertainty_scale, 0.25))
     reject_margin = Float64(_option(options, :surrogate_reject_margin, 0.05))
     required_true = ceil(Int, true_fraction * state.proposals)
-    if state.true_evaluations < required_true || rand() < exploration
+    if state.true_evaluations < required_true || rand(rng) < exploration
         return SurrogateDecision(true, features, predicted_cost, uncertainty)
     end
 

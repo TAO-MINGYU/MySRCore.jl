@@ -157,8 +157,21 @@ end
 
 @testset "Parent selection policies" begin
     SR = MySRCore.SymbolicRegression
-    @test SR.Options().parent_selection == :tournament
-    @test SR.Options().survival_strategy == :regularized_evolution
+    @test SR.DEFAULT_PARENT_SELECTION == :epsilon_lexicase
+    @test SR.DEFAULT_SURVIVAL_STRATEGY == :age_fitness_pareto
+    @test SR.Options().parent_selection == SR.DEFAULT_PARENT_SELECTION
+    @test SR.Options().survival_strategy == SR.DEFAULT_SURVIVAL_STRATEGY
+    current_defaults = SR.CoreModule.OptionsModule.default_options()
+    v2_defaults = SR.CoreModule.OptionsModule.default_options(v"2.0.0-alpha")
+    v1_defaults = SR.CoreModule.OptionsModule.default_options(v"1.0.0")
+    @test current_defaults.parent_selection == SR.DEFAULT_PARENT_SELECTION
+    @test current_defaults.survival_strategy == SR.DEFAULT_SURVIVAL_STRATEGY
+    @test v2_defaults.parent_selection == SR.DEFAULT_PARENT_SELECTION
+    @test v2_defaults.survival_strategy == SR.DEFAULT_SURVIVAL_STRATEGY
+    @test v1_defaults.parent_selection == :tournament
+    @test v1_defaults.survival_strategy == :regularized_evolution
+    @test SR.Options(defaults=v"1.0.0").parent_selection == :tournament
+    @test SR.Options(defaults=v"1.0.0").survival_strategy == :regularized_evolution
     @test SR.Options().epsilon === SR.DEFAULT_EPSILON
     @test SR.Options().epsilon_mode == SR.DEFAULT_EPSILON_MODE
     @test SR.Options(
@@ -182,6 +195,15 @@ end
     )
     @test absolute_options.epsilon == 0.1
     @test absolute_options.epsilon_mode == :absolute
+
+    weighted_mutations = [SR.ConstantMutation() => 1.0, SR.DoNothingMutation() => 1.0]
+    sampled_type_1 = typeof(
+        SR.sample_mutation(weighted_mutations; rng=MersenneTwister(17))
+    )
+    sampled_type_2 = typeof(
+        SR.sample_mutation(weighted_mutations; rng=MersenneTwister(17))
+    )
+    @test sampled_type_1 === sampled_type_2
 
     errors = [0.0 1.0; 2.0 3.0]
     @test SR.epsilon_lexicase_index(errors; rng=MersenneTwister(1)) == 1
@@ -420,6 +442,42 @@ end
     )
     @test decision isa SR.SurrogateDecision
     @test SR.surrogate_stats(state).proposals == 1
+
+    rng_options = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        default_plugins=(),
+        surrogate_enabled=true,
+        surrogate_warmup_evals=1,
+        surrogate_probe_size=3,
+        surrogate_neighbors=1,
+        surrogate_true_eval_fraction=0.0,
+        surrogate_exploration_fraction=0.5,
+    )
+    rng_state = SR.SurrogateModule.create_surrogate_state(dataset, rng_options)
+    rng_member = SR.PopMember(dataset, tree, rng_options; deterministic=true)
+    SR.SurrogateModule.observe_surrogate_member!(rng_state, rng_member, dataset, rng_options)
+    rng_state.true_evaluations = 2
+    rng_state_repeat = deepcopy(rng_state)
+    decision_a = SR.SurrogateModule.consider_surrogate!(
+        rng_state,
+        tree,
+        dataset,
+        rng_options,
+        SR.compute_complexity(tree, rng_options),
+        rng_member.cost;
+        rng=MersenneTwister(41),
+    )
+    decision_b = SR.SurrogateModule.consider_surrogate!(
+        rng_state_repeat,
+        tree,
+        dataset,
+        rng_options,
+        SR.compute_complexity(tree, rng_options),
+        rng_member.cost;
+        rng=MersenneTwister(41),
+    )
+    @test decision_a.evaluate == decision_b.evaluate
 end
 
 @testset "Surrogate search integration" begin
