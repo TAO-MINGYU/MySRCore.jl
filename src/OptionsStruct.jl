@@ -93,12 +93,11 @@ Describe the fraction of populations assigned to one `IslandProfile`.  The
 struct PopulationProfileGroup
     profile::IslandProfile
     share::Float64
-end
-
-function PopulationProfileGroup(profile::IslandProfile, share::Real)
-    isfinite(share) && share > 0 ||
-        throw(ArgumentError("population profile group share must be finite and positive."))
-    return PopulationProfileGroup(profile, Float64(share))
+    function PopulationProfileGroup(profile::IslandProfile, share::Real)
+        isfinite(share) && share > 0 ||
+            throw(ArgumentError("population profile group share must be finite and positive."))
+        return new(profile, Float64(share))
+    end
 end
 
 PopulationProfileGroup(profile::IslandProfile; share::Real) =

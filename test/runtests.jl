@@ -747,6 +747,10 @@ end
 @testset "Population profile quotas" begin
     algebraic = IslandProfile(id=:algebraic, role=:algebraic)
     trigonometric = IslandProfile(id=:trigonometric, role=:trigonometric)
+    for share in (0.0, -0.1, Inf, NaN)
+        @test_throws ArgumentError PopulationProfileGroup(algebraic, share)
+    end
+    @test PopulationProfileGroup(algebraic, 3 // 10).share ≈ 0.3
     options = Options(
         populations=10,
         population_profile_groups=[
@@ -757,6 +761,7 @@ end
     )
     @test count(profile -> profile.id == :algebraic, options.population_profiles) == 3
     @test count(profile -> profile.id == :trigonometric, options.population_profiles) == 7
+    @test length(options.population_profile_groups) == 2
     @test population_profile_indices(options, 1) == [1, 2, 3]
     @test population_profile_indices(options, 4) == collect(4:10)
     @test random_migration_source(options, 1; rng=MersenneTwister(7)) in [2, 3]
@@ -783,6 +788,17 @@ end
         ],
         default_plugins=(),
     )
+    tie_options = Options(
+        populations=5,
+        population_profile_groups=[
+            PopulationProfileGroup(algebraic, 0.34),
+            PopulationProfileGroup(trigonometric, 0.33),
+            PopulationProfileGroup(IslandProfile(id=:generalist), 0.33),
+        ],
+        default_plugins=(),
+    )
+    @test getfield.(tie_options.population_profiles, :id) ==
+        [:algebraic, :algebraic, :trigonometric, :trigonometric, :generalist]
 end
 
 @testset "Migration novelty and profile compatibility" begin
@@ -884,6 +900,39 @@ end
     @test length(hall.members) == options.maxsize
     @test profiled_options(options, 1).profile.id == :algebraic
     @test profiled_options(options, 2).profile.id == :trigonometric
+
+    grouped_options = Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(sin, cos),
+        populations=4,
+        population_size=6,
+        tournament_selection_n=2,
+        ncycles_per_iteration=1,
+        maxsize=7,
+        population_profile_groups=[
+            PopulationProfileGroup(profile_a, 0.5),
+            PopulationProfileGroup(profile_b, 0.5),
+        ],
+        migration_policy=:best_plus_novelty,
+        default_plugins=(),
+        save_to_file=false,
+        deterministic=true,
+        seed=2026,
+    )
+    grouped_hall = equation_search(
+        X,
+        y;
+        niterations=1,
+        options=grouped_options,
+        parallelism=:serial,
+        progress=false,
+        verbosity=0,
+    )
+    @test length(grouped_hall.members) == grouped_options.maxsize
+    @test population_profile_indices(grouped_options, 1) == [1, 2]
+    @test population_profile_indices(grouped_options, 3) == [3, 4]
+    @test random_migration_source(grouped_options, 1; rng=MersenneTwister(7)) == 2
+    @test random_migration_source(grouped_options, 3; rng=MersenneTwister(7)) == 4
 end
 
 @testset "RNN-GPSR population seeding" begin

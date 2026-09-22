@@ -495,6 +495,10 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `hof_migration`: Whether to migrate equations from the hall of fame
     to processes.
 - `migration_policy`: Candidate selection policy, either `:best_only` (the
+    source population's best subpopulation) or `:best_plus_novelty` (cost-first
+    structural de-duplication with profile compatibility filtering). Ordinary
+    migration always chooses the source from the destination population's
+    profile group.
 - `fraction_replaced`: What fraction of each population to replace with
     migrated equations at the end of each cycle.
 - `fraction_replaced_hof`: What fraction to replace with hall of fame
