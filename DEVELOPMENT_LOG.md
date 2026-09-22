@@ -644,3 +644,27 @@
 ## 2026-09-22 - RNN-GPSR post-sync verification
 
 - **Verification**：After merging canonical default-policy changes, Julia 1.10.3 with an isolated writable depot/project ran the complete `Pkg.test("MySRCore"; coverage=false)` suite successfully. The RNN-GPSR testsets included the independent-budget regression (`6/6`), and all existing uncertainty, parent-selection, surrogate, migration, dimensional, and template testsets passed. `git diff --check` also passed.
+
+## 2026-09-23 - Child constant and structure refinement
+
+- 变更类型：搜索质量与 child acceptance 前的局部优化。
+- 隔离路径：`worktrees/constant-structure-optimization-20260922/MySRCore.jl`；分支
+  `feature/constant-structure-optimization-20260922`。worktree 已吸收 canonical Core
+  `9b31167` 的后续 RNN-GPSR lightweight budget 提交，未修改 canonical checkout。
+- 实现：新增 `child_refinement` 选项（`:safe` 默认、`:thorough`、`:none`）；mutation 与
+  crossover 在 raw evaluation 后执行有界常数精修，并对精修后的 cost/loss 更新 surrogate
+  观察；加入 constant folding、operator combination、双重 negation 与 neutral-element
+  的结构候选，只有完整重评估不劣且复杂度更低时才采用；半理论公式的外部量纲系数保留父代值；
+  population end-of-iteration simplification 共用同一结构清理路径；新增 optimizer option
+  override 与 bounded budget helper；crossover 对 NaN child 提前拒绝。
+- 测试：env_1_mysr Julia 1.10.3，隔离可写 depot/project 指向本 worktree；完整
+  `Pkg.test("MySRCore"; coverage=false)` 通过，包含 RNN-GPSR lightweight、量纲、模板和
+  新增 `Child constant and structure refinement` `11/11`；`git diff --check` 通过；
+  Float32 unary serial smoke 通过。
+- 诊断：固定小型 hard sinusoid 搜索中，`:safe` 与历史 `:none` 在 3 个 seed 上均能完成；
+  线性目标的 3-seed local comparison 中 `:safe` 找到近零损失解，`:none` 有两个 seed
+  停在较高损失。该实验不是 matched benchmark，不据此宣称普遍性能收益。
+- 提交：算法提交 `287fd62`；吸收 canonical 最新状态的 merge commit `295c6af`；未合并回
+  canonical、未删除 worktree、未推送。
+- 遗留：尚未运行完整 Python 405 项或正式 matched P/M benchmark；child refinement 的
+  额外 evaluations 与默认策略长期收益需后续基准测试确认。
