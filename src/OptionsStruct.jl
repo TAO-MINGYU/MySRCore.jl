@@ -319,6 +319,11 @@ struct Options{
     migration_policy::Symbol
     should_simplify::Bool
     should_optimize_constants::Bool
+    # Refine newly generated children before the evolutionary acceptance gate.
+    # `:safe` uses a bounded optimizer and semantics-preserving simplification;
+    # `:thorough` uses the configured optimizer budget; `:none` preserves the
+    # historical evaluate-then-optimize timing.
+    child_refinement::Symbol
     output_directory::Union{String,Nothing}
     populations::Int
     population_profiles::Union{Nothing,Vector{IslandProfile}}
@@ -530,6 +535,7 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :uncertainty_mode,
         :robust_delta,
         :student_nu,
+        :child_refinement,
         :node_type,
         :expression_type,
         :expression_options,

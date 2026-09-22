@@ -544,6 +544,11 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
     pass a custom objective, this will be set to `false`.
 - `should_optimize_constants`: Whether to use an optimization algorithm
     to periodically optimize constants in equations.
+- `child_refinement`: How to refine a newly generated child before its
+    acceptance decision. `:safe` (the default) runs a bounded constant fit and
+    keeps a lower-complexity simplification only when it remains no worse on
+    the data; `:thorough` uses the configured optimizer budget; `:none`
+    preserves the historical evaluate-then-optimize timing.
 - `optimizer_algorithm`: Select algorithm to use for optimizing constants. Default
     is `Optim.BFGS(linesearch=LineSearches.BackTracking())`.
 - `optimizer_nrestarts`: How many different random starting positions to consider
@@ -776,6 +781,7 @@ end
     ###           optimizer_f_calls_limit
     ###           optimizer_options
     ###           should_optimize_constants
+    child_refinement::Symbol=:safe,
     ## 8. Migration between Populations:
     ###           migration
     ###           hof_migration
@@ -1087,6 +1093,8 @@ end
             una_constraints === nothing
         )
     end
+    child_refinement in (:none, :safe, :thorough) ||
+        throw(ArgumentError("`child_refinement` must be :none, :safe, or :thorough."))
 
     maxsize > 3 || throw(ArgumentError("`maxsize` must be greater than 3."))
     isfinite(warmup_maxsize_by) && warmup_maxsize_by >= 0.0 ||
@@ -1607,6 +1615,7 @@ end
         migration_policy,
         should_simplify,
         should_optimize_constants,
+        child_refinement,
         _output_directory,
         populations,
         population_profiles,

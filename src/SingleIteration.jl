@@ -2,13 +2,12 @@ module SingleIterationModule
 
 using Random: AbstractRNG, default_rng, rand
 using ADTypes: AutoEnzyme
-using DynamicExpressions: AbstractExpression, simplify_tree!, combine_operators
+using DynamicExpressions: AbstractExpression
 using ..UtilsModule: @threads_if, strictmap
 using ..CoreModule:
     AbstractOptions,
     Dataset,
     MaybeTrace,
-    create_expression,
     batch,
     get_batch_size,
     batching_required,
@@ -19,12 +18,9 @@ using ..PopulationModule: Population, finalize_costs
 using ..HallOfFameModule: HallOfFame, update_hall_of_fame!
 using ..RegularizedEvolutionModule: reg_evol_cycle
 using ..SurrogateModule: create_surrogate_state, observe_surrogate_member!
-using ..LossFunctionsModule: create_eval_context, eval_cost
+using ..LossFunctionsModule: create_eval_context
 using ..ConstantOptimizationModule: optimize_constants
-using ..DimensionalAnalysisModule:
-    unwrap_dimensional_scale,
-    wrap_dimensional_scale,
-    dimensional_scale_coefficient
+using ..ChildOptimizationModule: simplify_child_tree
 using ..TracingModule: trace_optimization!
 
 # Cycle through regularized evolution many times,
@@ -116,13 +112,13 @@ function optimize_and_simplify_population(
     @threads_if should_thread for j in 1:(pop.n)
         if options.should_simplify
             member_tree = pop.members[j].tree
-            coefficient = dimensional_scale_coefficient(member_tree, options)
-            tree = unwrap_dimensional_scale(member_tree, options)
-            tree = simplify_tree!(tree, options.operators)
-            tree = combine_operators(tree, options.operators)
-            pop.members[j].tree = coefficient === nothing ?
-                wrap_dimensional_scale(tree, options) :
-                wrap_dimensional_scale(tree, options; coefficient=coefficient)
+            pop.members[j].tree = try
+                simplify_child_tree(member_tree, options)
+            catch
+                # Preserve the historical search path for custom expression
+                # types that do not expose the full node interface.
+                member_tree
+            end
         end
         if options.should_optimize_constants && do_optimization[j]
             # TODO: Might want to do full batch optimization here?

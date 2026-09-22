@@ -24,7 +24,8 @@ using ..DimensionalAnalysisModule:
     dimensional_scale_coefficient,
     dimensional_scale_identity
 using ..MutateModule: _sample_mutation
-using ..SurrogateModule: consider_surrogate!, observe_surrogate!
+using ..ChildOptimizationModule: refine_child
+using ..SurrogateModule: consider_surrogate!, observe_surrogate!, surrogate_features
 using ..TracingModule: trace_mutation_result!, trace_mutation_type!
 
 """
@@ -276,15 +277,64 @@ function _crossover_generation(
         dataset, child_tree2, options; complexity=afterSize2, eval_context
     )
     num_evals += 2 * dataset_fraction(dataset)
+
+    if isnan(after_cost1) || isnan(after_cost2)
+        trace_mutation_result!(trace, "reject", "nan_loss")
+        return member1, member2, false, num_evals
+    end
+
+    refined1, refinement_evals1 = refine_child(
+        dataset,
+        member1,
+        child_tree1,
+        after_cost1,
+        after_loss1,
+        options;
+        complexity=afterSize1,
+        curmaxsize=curmaxsize,
+        parent_ref=member1.ref,
+        eval_context=eval_context,
+        rng=rng,
+    )
+    refined2, refinement_evals2 = refine_child(
+        dataset,
+        member2,
+        child_tree2,
+        after_cost2,
+        after_loss2,
+        options;
+        complexity=afterSize2,
+        curmaxsize=curmaxsize,
+        parent_ref=member2.ref,
+        eval_context=eval_context,
+        rng=rng,
+    )
+    num_evals += refinement_evals1 + refinement_evals2
+    child_tree1 = refined1.tree
+    child_tree2 = refined2.tree
+    afterSize1 = compute_complexity(refined1, options)
+    afterSize2 = compute_complexity(refined2, options)
+    after_cost1, after_loss1 = refined1.cost, refined1.loss
+    after_cost2, after_loss2 = refined2.cost, refined2.loss
+    final_features1 = try
+        surrogate_features(child_tree1, dataset, options, surrogate_state, afterSize1)
+    catch
+        surrogate_decision1.features
+    end
+    final_features2 = try
+        surrogate_features(child_tree2, dataset, options, surrogate_state, afterSize2)
+    catch
+        surrogate_decision2.features
+    end
     observe_surrogate!(
         surrogate_state,
-        surrogate_decision1.features,
+        final_features1,
         after_cost1,
         after_loss1,
     )
     observe_surrogate!(
         surrogate_state,
-        surrogate_decision2.features,
+        final_features2,
         after_cost2,
         after_loss2,
     )

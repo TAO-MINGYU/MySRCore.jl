@@ -689,6 +689,116 @@ end
     end
 end
 
+@testset "Child constant and structure refinement" begin
+    SR = MySRCore.SymbolicRegression
+    X = reshape(Float64[1, 2, 3, 4, 5], 1, :)
+    dataset = SR.Dataset(X, 3 .* vec(X) .+ 1; variable_names=["x1"])
+    options = SR.Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        default_plugins=(),
+        child_refinement=:safe,
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        maxsize=12,
+        optimizer_iterations=8,
+        optimizer_f_calls_limit=100,
+        deterministic=true,
+        save_to_file=false,
+    )
+    @test options.child_refinement === :safe
+    @test_throws ArgumentError SR.Options(child_refinement=:invalid)
+
+    tree = SR.parse_expression(
+        "0.2 * x1 + 0.1";
+        operators=options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    parent = SR.PopMember(dataset, tree, options; deterministic=true)
+    refined, num_evals = SR.refine_child(
+        dataset,
+        parent,
+        tree,
+        parent.cost,
+        parent.loss,
+        options;
+        complexity=SR.compute_complexity(tree, options),
+        rng=MersenneTwister(42),
+    )
+    @test num_evals > 0
+    @test isfinite(refined.loss)
+    @test refined.loss < parent.loss
+    @test refined.cost <= parent.cost
+
+    structure_options = SR.Options(
+        binary_operators=(+, -, *, /),
+        unary_operators=(),
+        default_plugins=(),
+        child_refinement=:safe,
+        should_optimize_constants=false,
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        maxsize=12,
+        deterministic=true,
+        save_to_file=false,
+    )
+    structure_dataset = SR.Dataset(X, vec(X); variable_names=["x1"])
+    structure_tree = SR.parse_expression(
+        "x1 + 0.0";
+        operators=structure_options.operators,
+        variable_names=["x1"],
+        node_type=SR.Node{Float64,2},
+    )
+    structure_parent = SR.PopMember(
+        structure_dataset, structure_tree, structure_options; deterministic=true
+    )
+    structure_child, structure_evals = SR.refine_child(
+        structure_dataset,
+        structure_parent,
+        structure_tree,
+        structure_parent.cost,
+        structure_parent.loss,
+        structure_options;
+        complexity=SR.compute_complexity(structure_tree, structure_options),
+        rng=MersenneTwister(7),
+    )
+    @test structure_evals > 0
+    @test SR.compute_complexity(structure_child, structure_options) <
+          SR.compute_complexity(structure_parent, structure_options)
+    @test SR.string_tree(structure_child.tree) == "x1"
+
+    no_refinement = SR.Options(
+        binary_operators=(+,),
+        unary_operators=(),
+        default_plugins=(),
+        child_refinement=:none,
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        maxsize=12,
+        deterministic=true,
+        save_to_file=false,
+    )
+    no_refinement_parent = SR.PopMember(
+        structure_dataset, structure_tree, no_refinement; deterministic=true
+    )
+    no_refinement_child, no_refinement_evals = SR.refine_child(
+        structure_dataset,
+        no_refinement_parent,
+        structure_tree,
+        no_refinement_parent.cost,
+        no_refinement_parent.loss,
+        no_refinement;
+        complexity=SR.compute_complexity(structure_tree, no_refinement),
+        rng=MersenneTwister(9),
+    )
+    @test no_refinement_evals == 0.0
+    @test SR.string_tree(no_refinement_child.tree) == "x1 + 0.0"
+end
+
 @testset "Dimension-aware mutation affinity" begin
     MutationFunctions = MySRCore.SymbolicRegression.MutationFunctionsModule
     X = Float64[1 2 3; 1 2 3]

@@ -142,6 +142,8 @@ end
     member::P,
     options::AbstractOptions;
     rng::AbstractRNG=default_rng(),
+    optimizer_options_override::Union{Nothing,Optim.Options}=nothing,
+    optimizer_nrestarts_override::Union{Nothing,Integer}=nothing,
 )::Tuple{P,Float64} where {T<:DATA_TYPE,L<:LOSS_TYPE,N,P<:AbstractPopMember{T,L,N}}
     can_optimize(member.tree, options) || return (member, 0.0)
     x0, refs = get_optimizable_parameters(member.tree, options)
@@ -157,7 +159,9 @@ end
             specialized_options(options),
             algorithm,
             options.optimizer_options,
-            rng,
+            rng;
+            optimizer_options_override=optimizer_options_override,
+            optimizer_nrestarts_override=optimizer_nrestarts_override,
         )
     end
     return _optimize_constants(
@@ -170,12 +174,23 @@ end
         # more particular about dynamic dispatch
         options.optimizer_algorithm,
         options.optimizer_options,
-        rng,
+        rng;
+        optimizer_options_override=optimizer_options_override,
+        optimizer_nrestarts_override=optimizer_nrestarts_override,
     )
 end
 
 function _optimize_constants(
-    dataset, member::P, x0, refs, options, algorithm, optimizer_options, rng
+    dataset,
+    member::P,
+    x0,
+    refs,
+    options,
+    algorithm,
+    optimizer_options,
+    rng;
+    optimizer_options_override=nothing,
+    optimizer_nrestarts_override=nothing,
 )::Tuple{P,Float64} where {T,L,N,P<:AbstractPopMember{T,L,N}}
     tree = member.tree
     eval_context = if options.autodiff_backend === nothing
@@ -187,37 +202,79 @@ function _optimize_constants(
     f = Evaluator(tree, refs, ctx)
     fg! = GradEvaluator(f, options.autodiff_backend)
     return _optimize_constants_inner(
-        f, fg!, x0, refs, dataset, member, options, algorithm, optimizer_options, rng
+        f,
+        fg!,
+        x0,
+        refs,
+        dataset,
+        member,
+        options,
+        algorithm,
+        optimizer_options,
+        rng;
+        optimizer_options_override,
+        optimizer_nrestarts_override,
     )
 end
 function _optimize_constants(
-    dataset, member::P, options, algorithm, optimizer_options, rng
+    dataset,
+    member::P,
+    options,
+    algorithm,
+    optimizer_options,
+    rng;
+    optimizer_options_override=nothing,
+    optimizer_nrestarts_override=nothing,
 )::Tuple{P,Float64} where {T,L,N,P<:AbstractPopMember{T,L,N}}
     x0, refs = get_optimizable_parameters(member.tree, options)
     return _optimize_constants(
-        dataset, member, x0, refs, options, algorithm, optimizer_options, rng
+        dataset,
+        member,
+        x0,
+        refs,
+        options,
+        algorithm,
+        optimizer_options,
+        rng;
+        optimizer_options_override,
+        optimizer_nrestarts_override,
     )
 end
 function _optimize_constants_inner(
-    f::F, fg!::G, x0, refs, dataset, member::P, options, algorithm, optimizer_options, rng
+    f::F,
+    fg!::G,
+    x0,
+    refs,
+    dataset,
+    member::P,
+    options,
+    algorithm,
+    optimizer_options,
+    rng;
+    optimizer_options_override=nothing,
+    optimizer_nrestarts_override=nothing,
 )::Tuple{P,Float64} where {F,G,T,L,N,P<:AbstractPopMember{T,L,N}}
     obj = if algorithm isa Optim.Newton || options.autodiff_backend === nothing
         f
     else
         Optim.only_fg!(fg!)
     end
+    effective_optimizer_options = something(optimizer_options_override, optimizer_options)
+    restart_count = something(
+        optimizer_nrestarts_override, options.optimizer_nrestarts
+    )
     baseline = f(x0)
-    result = Optim.optimize(obj, x0, algorithm, optimizer_options)
+    result = Optim.optimize(obj, x0, algorithm, effective_optimizer_options)
     eval_fraction = dataset_fraction(dataset)
     num_evals = result.f_calls * eval_fraction
     # Try other initial conditions:
-    for _ in 1:(options.optimizer_nrestarts)
+    for _ in 1:restart_count
         xt = let
             ET = eltype(x0)
             eps = randn(rng, ET, size(x0)...)
             @. ifelse(iszero(x0), eps, x0 * (ET(1) + ET(1 // 2) * eps))
         end
-        tmpresult = Optim.optimize(obj, xt, algorithm, optimizer_options)
+        tmpresult = Optim.optimize(obj, xt, algorithm, effective_optimizer_options)
         num_evals += tmpresult.f_calls * eval_fraction
         # TODO: Does this need to take into account h_calls?
 
@@ -240,6 +297,31 @@ function _optimize_constants_inner(
     end
 
     return member, num_evals
+end
+
+"""
+    bounded_optimizer_options(options; iterations=4, f_calls_limit=64)
+
+Return a copy of the configured Optim options with a small, explicit budget.
+Child refinement uses this helper so that fitting constants before the
+evolutionary acceptance gate cannot consume the full end-of-iteration budget.
+All other optimizer tolerances and callback settings are preserved.
+"""
+function bounded_optimizer_options(
+    options::AbstractOptions; iterations::Integer=4, f_calls_limit::Integer=64
+)
+    iterations >= 1 || throw(ArgumentError("iterations must be positive."))
+    f_calls_limit >= 1 || throw(ArgumentError("f_calls_limit must be positive."))
+    base = options.optimizer_options
+    field_names = fieldnames(typeof(base))
+    field_values = ntuple(i -> getfield(base, field_names[i]), length(field_names))
+    base_keywords = NamedTuple{field_names}(field_values)
+    return Optim.Options(;
+        merge(
+            base_keywords,
+            (iterations=Int(iterations), f_calls_limit=Int(f_calls_limit)),
+        )...,
+    )
 end
 
 struct EvaluatorContext{D<:Dataset,O<:AbstractOptions,E} <: Function

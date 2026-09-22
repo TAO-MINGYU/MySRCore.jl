@@ -278,6 +278,7 @@ using DispatchDoctor: @stable, @unstable
     include("ParentSelection.jl")
     include("Surrogate.jl")
     include("ConstantOptimization.jl")
+    include("ChildOptimization.jl")
     include("Population.jl")
     include("HallOfFame.jl")
     include("Tracing.jl")
@@ -449,6 +450,7 @@ using .ConstantOptimizationModule:
     get_optimizable_parameters,
     set_optimizable_parameters!,
     extract_optimizable_gradient
+using .ChildOptimizationModule: refine_child
 using .PopMemberModule:
     AbstractPopMember, PopMember, reset_birth!, popmember_type, expression_type
 using .SurrogateModule:

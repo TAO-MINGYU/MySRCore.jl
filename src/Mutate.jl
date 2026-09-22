@@ -76,6 +76,7 @@ using ..DimensionalAnalysisModule:
     dimensional_scale_coefficient,
     dimensional_scale_identity
 using ..ConstantOptimizationModule: optimize_constants
+using ..ChildOptimizationModule: refine_child
 using ..SurrogateModule:
     SurrogateState,
     consider_surrogate!,
@@ -600,12 +601,6 @@ function _next_generation(
         dataset, tree, options; complexity=after_size, eval_context
     )
     num_evals += dataset_fraction(dataset)
-    observe_surrogate!(
-        surrogate_state,
-        surrogate_decision.features,
-        after_cost,
-        after_loss,
-    )
 
     if isnan(after_cost)
         trace_mutation_result!(tmp_trace, "reject", "nan_loss")
@@ -631,6 +626,36 @@ function _next_generation(
             num_evals,
         )
     end
+
+    refined_member, refinement_evals = refine_child(
+        dataset,
+        member,
+        tree,
+        after_cost,
+        after_loss,
+        options;
+        complexity=after_size,
+        curmaxsize=curmaxsize,
+        parent_ref=parent_ref,
+        eval_context=eval_context,
+        rng=rng,
+    )
+    num_evals += refinement_evals
+    tree = refined_member.tree
+    after_size = compute_complexity(refined_member, options)
+    after_cost = refined_member.cost
+    after_loss = refined_member.loss
+    final_surrogate_features = try
+        surrogate_features(tree, dataset, options, surrogate_state, after_size)
+    catch
+        surrogate_decision.features
+    end
+    observe_surrogate!(
+        surrogate_state,
+        final_surrogate_features,
+        after_cost,
+        after_loss,
+    )
 
     acceptance_ctx = MutationAcceptanceContext(member, tree, before_cost, after_cost)
     probChange = prod(
@@ -665,9 +690,7 @@ function _next_generation(
     end
 
     trace_mutation_result!(tmp_trace, "accept", "pass")
-    new_member = create_child(
-        member, tree, after_cost, after_loss, options; parent_ref=parent_ref
-    )
+    new_member = refined_member
     _fire_on_mutation_end!(
         options,
         plugin_states,
