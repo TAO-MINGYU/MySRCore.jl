@@ -358,6 +358,10 @@ struct Options{
     rnn_gpsr_seed_fraction::Float64
     rnn_gpsr_candidate_count::Int
     rnn_gpsr_proposal_count::Int
+    rnn_gpsr_populations::Int
+    rnn_gpsr_population_size::Int
+    rnn_gpsr_niterations::Int
+    rnn_gpsr_ncycles_per_iteration::Int
     rnn_gpsr_cycles::Int
     rnn_gpsr_rounds::Int
     rnn_gpsr_feedback_fraction::Float64
@@ -512,6 +516,10 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :rnn_gpsr_seed_fraction,
         :rnn_gpsr_candidate_count,
         :rnn_gpsr_proposal_count,
+        :rnn_gpsr_populations,
+        :rnn_gpsr_population_size,
+        :rnn_gpsr_niterations,
+        :rnn_gpsr_ncycles_per_iteration,
         :rnn_gpsr_cycles,
         :rnn_gpsr_rounds,
         :rnn_gpsr_feedback_fraction,

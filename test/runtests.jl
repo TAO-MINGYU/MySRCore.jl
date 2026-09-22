@@ -1163,7 +1163,16 @@ end
 
 @testset "RNN-GPSR population seeding" begin
     @test !Options().rnn_gpsr_seeding
+    @test Options().rnn_gpsr_populations == 1
+    @test Options().rnn_gpsr_population_size == 8
+    @test Options().rnn_gpsr_niterations == 1
+    @test Options().rnn_gpsr_ncycles_per_iteration == 4
+    @test Options().rnn_gpsr_cycles == 4
     @test_throws ArgumentError Options(rnn_gpsr_seed_fraction=1.1)
+    @test_throws ArgumentError Options(
+        rnn_gpsr_cycles=2,
+        rnn_gpsr_ncycles_per_iteration=3,
+    )
 
     X = reshape(collect(Float64, -2:0.2:2), 1, :)
     y = 2 .* vec(X) .+ 1
@@ -1207,6 +1216,49 @@ end
     end
 
     @test seeded_frontier(2026) == seeded_frontier(2026)
+end
+
+@testset "RNN-GPSR lightweight budget is isolated from formal GPSR" begin
+    X = reshape(Float64[1, 2, 3, 4], 1, :)
+    y = copy(vec(X))
+    observed_counts = Int[]
+    generator(training_sequences, costs, token_arities, count, max_length, seed) = begin
+        push!(observed_counts, count)
+        [Int[2]]
+    end
+    options = Options(
+        default_plugins=(),
+        populations=3,
+        population_size=27,
+        ncycles_per_iteration=99,
+        rnn_gpsr_seeding=true,
+        rnn_gpsr_candidate_count=8,
+        rnn_gpsr_proposal_count=8,
+        rnn_gpsr_populations=2,
+        rnn_gpsr_population_size=3,
+        rnn_gpsr_niterations=2,
+        rnn_gpsr_ncycles_per_iteration=1,
+        rnn_gpsr_rounds=1,
+        rnn_gpsr_quality_gate=false,
+        rnn_gpsr_maxsize=5,
+        maxsize=7,
+        seed=2026,
+        deterministic=true,
+        save_to_file=false,
+    )
+    dataset = Dataset(X, y; variable_names=["x1"])
+    pool, evaluations = MySRCore.SymbolicRegression.PopulationSeedingModule.build_rnn_gpsr_seed_pool(
+        dataset,
+        options,
+        ();
+        rnn_generator=generator,
+    )
+    @test observed_counts == [8, 8]
+    @test length(pool) <= 2 * 3
+    @test evaluations > 0
+    @test options.populations == 3
+    @test options.population_size == 27
+    @test options.ncycles_per_iteration == 99
 end
 
 @testset "RNN-GPSR tokenization handles unary roots" begin
@@ -1292,6 +1344,7 @@ end
         rnn_gpsr_seeding=true,
         rnn_gpsr_candidate_count=27,
         rnn_gpsr_proposal_count=27,
+        rnn_gpsr_population_size=27,
         rnn_gpsr_cycles=0,
         rnn_gpsr_rounds=2,
         rnn_gpsr_feedback_fraction=0.2,
@@ -1420,7 +1473,8 @@ end
             rnn_generator=generator,
         )
     @test observed_counts == [4]
-    @test evaluations == options.population_size + options.rnn_gpsr_candidate_count
+    @test evaluations ==
+        options.rnn_gpsr_population_size + options.rnn_gpsr_candidate_count
 end
 
 @testset "RNN-GPSR feedback count excludes nonfinite members" begin

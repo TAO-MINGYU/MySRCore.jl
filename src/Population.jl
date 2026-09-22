@@ -200,8 +200,13 @@ end
 function sample_pop(
     pop::P, options::AbstractOptions; rng::AbstractRNG=default_rng()
 )::P where {P<:Population}
+    # RNN-GPSR may intentionally use a smaller lightweight population than the
+    # formal search.  Keep tournament selection without replacement valid for
+    # that bounded population while preserving the formal path (whose options
+    # already require tournament_selection_n < population_size).
+    sample_size = min(options.tournament_selection_n, pop.n)
     return Population(
-        StatsBase.sample(rng, pop.members, options.tournament_selection_n; replace=false)
+        StatsBase.sample(rng, pop.members, sample_size; replace=false)
     )
 end
 

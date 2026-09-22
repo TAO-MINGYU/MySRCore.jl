@@ -3,14 +3,15 @@ module PopulationSeedingModule
 using Random: AbstractRNG, MersenneTwister, default_rng
 using Statistics: median
 using DynamicExpressions:
-    AbstractExpression, AbstractExpressionNode, constructorof, get_tree
+    AbstractExpression, AbstractExpressionNode, constructorof, get_tree, string_tree
 
 using ..CoreModule:
     AbstractOptions,
     Dataset,
     max_features,
     sample_value,
-    dimension_policy
+    dimension_policy,
+    fork_plugin_state
 using ..CheckConstraintsModule: check_constraints
 using ..MutationFunctionsModule: gen_random_tree_fixed_size
 using ..DimensionGenerationModule: gen_random_tree_dimensional
@@ -375,6 +376,41 @@ function _valid_random_member(
     )
 end
 
+function _fork_seed_plugin_states(
+    options::AbstractOptions,
+    plugin_states::Tuple,
+    dataset::Dataset,
+)
+    return Tuple(
+        fork_plugin_state(state, plugin, dataset) for
+        (plugin, state) in zip(options.plugins, plugin_states)
+    )
+end
+
+function _trim_seed_pool!(
+    seed_pool::Vector{AbstractPopMember},
+    options::AbstractOptions,
+    limit::Int,
+)
+    isempty(seed_pool) && return seed_pool
+    sort!(seed_pool; by=_member_cost)
+    seen = Set{Any}()
+    unique_members = AbstractPopMember[]
+    for member in seed_pool
+        # Token sequences intentionally collapse all constants to one token for
+        # RNN training.  Use the rendered tree for seed-pool de-duplication so
+        # distinct optimized constants are not discarded as duplicates.
+        key = string_tree(member.tree, options; pretty=false)
+        key in seen && continue
+        push!(seen, key)
+        push!(unique_members, member)
+        length(unique_members) >= limit && break
+    end
+    empty!(seed_pool)
+    append!(seed_pool, unique_members)
+    return seed_pool
+end
+
 """
     build_rnn_gpsr_seed_pool(dataset, options, plugin_states; rnn_generator, seed_offset=0)
 
@@ -384,13 +420,15 @@ Build an alternating RNN-to-lightweight-GPSR seed pool in bounded stages:
 2. ask an external trainable recurrent policy to generate grammar-complete proposal
    sequences, parse and validate them, then compare their best real-loss members with
    a random control group evaluated under the same candidate budget;
-3. evolve the accepted group with the existing regularized GP-SR cycle;
+3. evolve each accepted lightweight population with the existing regularized
+   GP-SR cycle for the configured lightweight iterations and cycles;
 4. append the best post-GPSR members and their real costs to the next RNN training
    round, and repeat for `rnn_gpsr_rounds` feedback rounds;
 5. return post-GPSR members for formal population injection.
 
-Returns `(members, evaluations)`. Structural-corpus construction is not counted as
-a real data evaluation; proposal and lightweight-GPSR evaluations are counted.
+Returns `(members, evaluations)`. Bootstrap candidate cost evaluations are counted
+in the returned total, but bootstrap candidates are never inserted as formal
+population members; proposal and lightweight-GPSR evaluations are counted too.
 """
 function build_rnn_gpsr_seed_pool(
     dataset::Dataset{T},
@@ -412,111 +450,136 @@ function build_rnn_gpsr_seed_pool(
     evaluations = Float64(bootstrap_evaluations)
     seed_pool = AbstractPopMember[]
     backend_feedback_count = 0
+    seed_pool_limit = max(
+        options.population_size * options.populations,
+        options.rnn_gpsr_population_size * options.rnn_gpsr_populations,
+    )
 
     for round_index in 1:(options.rnn_gpsr_rounds)
-        proposal_count = options.rnn_gpsr_proposal_count
-        neural_keep = min(options.population_size, proposal_count)
-        generation_seed = base_seed + seed_offset + 1_000_003 * round_index
         has_backend_feedback = backend_feedback_count > 0
-        proposal_trees = _generate_proposal_trees(
-            rnn_generator,
+        round_feedback_members = AbstractPopMember[]
+        for lightweight_population_index in 1:(options.rnn_gpsr_populations)
+            proposal_count = options.rnn_gpsr_proposal_count
+            lightweight_population_size = options.rnn_gpsr_population_size
+            neural_keep = min(lightweight_population_size, proposal_count)
+            population_seed = base_seed +
+                seed_offset +
+                1_000_003 * round_index +
+                10_007 * lightweight_population_index
+            population_rng = MersenneTwister(population_seed)
+            proposal_trees = _generate_proposal_trees(
+                rnn_generator,
+                training_sequences,
+                training_costs,
+                dataset,
+                T,
+                options,
+                nfeatures,
+                maxsize,
+                proposal_count,
+                population_seed,
+                population_rng,
+                round_index,
+                has_backend_feedback ? :backend_gpsr_feedback : :bootstrap_structural,
+                has_backend_feedback,
+            )
+            neural_members = PM[
+                constructorof(PM)(
+                    dataset,
+                    tree,
+                    options;
+                    parent=-1,
+                    deterministic=options.deterministic,
+                ) for tree in proposal_trees
+            ]
+            evaluations += length(neural_members)
+            sort!(neural_members; by=_member_cost)
+            resize!(neural_members, neural_keep)
+
+            accepted_members = neural_members
+            if options.rnn_gpsr_quality_gate
+                control_members = PM[
+                    _valid_random_member(
+                        PM, dataset, options, nfeatures, maxsize, population_rng
+                    ) for _ in 1:proposal_count
+                ]
+                evaluations += length(control_members)
+                sort!(control_members; by=_member_cost)
+                resize!(control_members, neural_keep)
+                if _population_quality(control_members) < _population_quality(neural_members)
+                    accepted_members = control_members
+                end
+            end
+
+            while length(accepted_members) < lightweight_population_size
+                push!(
+                    accepted_members,
+                    _valid_random_member(
+                        PM, dataset, options, nfeatures, maxsize, population_rng
+                    ),
+                )
+                evaluations += 1
+            end
+            sort!(accepted_members; by=_member_cost)
+            population = Population(copy.(accepted_members[1:lightweight_population_size]))
+            evolved_members = copy.(population.members)
+            population_plugin_states = _fork_seed_plugin_states(
+                options, plugin_states, dataset
+            )
+            for iteration_index in 1:(options.rnn_gpsr_niterations)
+                options.rnn_gpsr_ncycles_per_iteration == 0 && break
+                iteration_seed = population_seed + 97 * iteration_index
+                evolved_population, _, gpsr_evaluations = s_r_cycle(
+                    dataset,
+                    population,
+                    options.rnn_gpsr_ncycles_per_iteration,
+                    maxsize;
+                    verbosity=0,
+                    options,
+                    trace=new_trace(options),
+                    plugin_states=population_plugin_states,
+                    rng=MersenneTwister(iteration_seed),
+                )
+                evaluations += gpsr_evaluations
+                previous_members = population.members
+                valid_members = [
+                    copy(member) for member in evolved_population.members if
+                    check_constraints(
+                        member.tree,
+                        dataset,
+                        options,
+                        maxsize;
+                        scope=_rnn_dimension_scope(options),
+                    )
+                ]
+                while length(valid_members) < lightweight_population_size
+                    push!(
+                        valid_members,
+                        copy(
+                            previous_members[
+                                mod1(length(valid_members) + 1, length(previous_members))
+                            ],
+                        ),
+                    )
+                end
+                resize!(valid_members, lightweight_population_size)
+                population = Population(copy.(valid_members))
+                evolved_members = copy.(population.members)
+            end
+            append!(round_feedback_members, evolved_members)
+            append!(seed_pool, copy.(evolved_members))
+        end
+        backend_feedback_count += _append_feedback_examples!(
             training_sequences,
             training_costs,
-            dataset,
-            T,
+            round_feedback_members,
             options,
             nfeatures,
-            maxsize,
-            proposal_count,
-            generation_seed,
-            rng,
-            round_index,
-            has_backend_feedback ? :backend_gpsr_feedback : :bootstrap_structural,
-            has_backend_feedback,
+            replace_bootstrap=backend_feedback_count == 0,
         )
-        neural_members = PM[
-            constructorof(PM)(
-                dataset,
-                tree,
-                options;
-                parent=-1,
-                deterministic=options.deterministic,
-            ) for tree in proposal_trees
-        ]
-        evaluations += length(neural_members)
-        sort!(neural_members; by=_member_cost)
-        resize!(neural_members, neural_keep)
-
-        accepted_members = neural_members
-        if options.rnn_gpsr_quality_gate
-            control_members = PM[
-                _valid_random_member(PM, dataset, options, nfeatures, maxsize, rng) for
-                _ in 1:proposal_count
-            ]
-            evaluations += length(control_members)
-            sort!(control_members; by=_member_cost)
-            resize!(control_members, neural_keep)
-            if _population_quality(control_members) < _population_quality(neural_members)
-                accepted_members = control_members
-            end
-        end
-
-        while length(accepted_members) < options.population_size
-            push!(
-                accepted_members,
-                _valid_random_member(PM, dataset, options, nfeatures, maxsize, rng),
-            )
-            evaluations += 1
-        end
-        sort!(accepted_members; by=_member_cost)
-        population = Population(copy.(accepted_members[1:options.population_size]))
-        if options.rnn_gpsr_cycles > 0
-            evolved_population, _, gpsr_evaluations = s_r_cycle(
-                dataset,
-                population,
-                options.rnn_gpsr_cycles,
-                maxsize;
-                verbosity=0,
-                options,
-                trace=new_trace(options),
-                plugin_states,
-            )
-            evaluations += gpsr_evaluations
-            evolved_members = [
-                copy(member) for member in evolved_population.members if
-                check_constraints(
-                    member.tree,
-                    dataset,
-                    options,
-                    maxsize;
-                    scope=_rnn_dimension_scope(options),
-                )
-            ]
-            append!(seed_pool, evolved_members)
-            feedback_members = isempty(evolved_members) ? accepted_members : evolved_members
-            backend_feedback_count += _append_feedback_examples!(
-                training_sequences,
-                training_costs,
-                feedback_members,
-                options,
-                nfeatures,
-                replace_bootstrap=backend_feedback_count == 0,
-            )
-        else
-            # Explicitly disabling lightweight GPSR is retained as a smoke/testing
-            # escape hatch; normal RNN-GPSR uses the post-GPSR branch above.
-            append!(seed_pool, copy.(accepted_members))
-            backend_feedback_count += _append_feedback_examples!(
-                training_sequences,
-                training_costs,
-                accepted_members,
-                options,
-                nfeatures,
-                replace_bootstrap=backend_feedback_count == 0,
-            )
-        end
+        _trim_seed_pool!(seed_pool, options, seed_pool_limit)
     end
-    sort!(seed_pool; by=_member_cost)
+    _trim_seed_pool!(seed_pool, options, seed_pool_limit)
     return (seed_pool, evaluations)
 end
 
