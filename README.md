@@ -95,6 +95,13 @@ prediction, did_succeed = eval_tree_array(tree, X, options)
 | Initialization | User guesses and optional RNN-GPSR proposal callbacks before formal search. |
 | Julia integration | Direct Julia API plus compatibility with the MySR Python frontend through JuliaPkg. |
 
+When `rnn_gpsr_seeding=true`, the callback seeding stage uses an independent
+lightweight GPSR budget: `rnn_gpsr_populations=1`,
+`rnn_gpsr_population_size=8`, `rnn_gpsr_niterations=1`, and
+`rnn_gpsr_ncycles_per_iteration=4` by default. These values do not inherit the
+formal search population or iteration settings. `rnn_gpsr_cycles` is retained
+as a compatibility alias for `rnn_gpsr_ncycles_per_iteration`.
+
 ## Dimensional workflows
 
 For dimension-aware search, pass seven-component exponent vectors in the order length, mass, time, current, temperature, luminosity, and amount. The policy is selected by `formula_type`:

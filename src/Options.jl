@@ -519,9 +519,17 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `rnn_gpsr_candidate_count`: Number of grammar/dimension-aware structural
    sequences used to fit the recurrent generator. These are not evaluated members.
 - `rnn_gpsr_proposal_count`: Number of expression sequences requested from the
-    recurrent generator in each feedback round.
-- `rnn_gpsr_cycles`: Number of regularized GP-SR cycles per recurrent/GPSR
-    feedback round.
+   recurrent generator in each feedback round.
+- `rnn_gpsr_populations`: Number of independent lightweight GPSR populations
+   used in each recurrent/GPSR feedback round. Defaults to `1`.
+- `rnn_gpsr_population_size`: Number of members in each lightweight GPSR
+   population. Defaults to `8`.
+- `rnn_gpsr_niterations`: Number of lightweight GPSR iterations per population
+   and feedback round. Defaults to `1`.
+- `rnn_gpsr_ncycles_per_iteration`: Number of regularized GP-SR cycles in each
+   lightweight GPSR iteration. Defaults to `4`.
+- `rnn_gpsr_cycles`: Deprecated compatibility alias for
+   `rnn_gpsr_ncycles_per_iteration`.
 - `rnn_gpsr_rounds`: Number of recurrent-generator → lightweight-GPSR → feedback
    rounds before formal MySRCore search.
 - `rnn_gpsr_feedback_fraction`: Fraction of the best lightweight-GPSR members
@@ -839,7 +847,11 @@ end
     rnn_gpsr_seed_fraction::Real=0.5,
     rnn_gpsr_candidate_count::Integer=128,
     rnn_gpsr_proposal_count::Integer=128,
-    rnn_gpsr_cycles::Integer=4,
+    rnn_gpsr_populations::Integer=1,
+    rnn_gpsr_population_size::Integer=8,
+    rnn_gpsr_niterations::Integer=1,
+    rnn_gpsr_ncycles_per_iteration::Union{Nothing,Integer}=nothing,
+    rnn_gpsr_cycles::Union{Nothing,Integer}=nothing,
     rnn_gpsr_rounds::Integer=2,
     rnn_gpsr_feedback_fraction::Real=0.2,
     rnn_gpsr_quality_gate::Bool=true,
@@ -1046,6 +1058,20 @@ end
     batching = something(batching, _default_options.batching)
     batch_size = something(batch_size, Some(_default_options.batch_size))
     rnn_gpsr_maxsize = something(rnn_gpsr_maxsize, min(maxsize, 7))
+    rnn_gpsr_ncycles_per_iteration = if isnothing(rnn_gpsr_ncycles_per_iteration)
+        isnothing(rnn_gpsr_cycles) ? 4 : rnn_gpsr_cycles
+    elseif !isnothing(rnn_gpsr_cycles) &&
+           rnn_gpsr_ncycles_per_iteration != rnn_gpsr_cycles
+        throw(ArgumentError(
+            "`rnn_gpsr_cycles` and `rnn_gpsr_ncycles_per_iteration` " *
+            "must match when both are provided."
+        ))
+    else
+        rnn_gpsr_ncycles_per_iteration
+    end
+    # Preserve the legacy field as a normalized alias for serialized options and
+    # warm-start comparisons.
+    rnn_gpsr_cycles = rnn_gpsr_ncycles_per_iteration
     if !user_provided_operators
         binary_operators = something(binary_operators, _default_options.operators.ops[2])
         unary_operators = something(unary_operators, _default_options.operators.ops[1])
@@ -1157,8 +1183,14 @@ end
         throw(ArgumentError("`rnn_gpsr_candidate_count` must be at least 8."))
     rnn_gpsr_proposal_count >= 1 ||
         throw(ArgumentError("`rnn_gpsr_proposal_count` must be positive."))
-    rnn_gpsr_cycles >= 0 ||
-        throw(ArgumentError("`rnn_gpsr_cycles` must be non-negative."))
+    rnn_gpsr_populations >= 1 ||
+        throw(ArgumentError("`rnn_gpsr_populations` must be positive."))
+    rnn_gpsr_population_size >= 1 ||
+        throw(ArgumentError("`rnn_gpsr_population_size` must be positive."))
+    rnn_gpsr_niterations >= 1 ||
+        throw(ArgumentError("`rnn_gpsr_niterations` must be positive."))
+    rnn_gpsr_ncycles_per_iteration >= 0 ||
+        throw(ArgumentError("`rnn_gpsr_ncycles_per_iteration` must be non-negative."))
     rnn_gpsr_rounds >= 1 ||
         throw(ArgumentError("`rnn_gpsr_rounds` must be positive."))
     0.0 <= rnn_gpsr_feedback_fraction <= 1.0 ||
@@ -1627,6 +1659,10 @@ end
         Float64(rnn_gpsr_seed_fraction),
         Int(rnn_gpsr_candidate_count),
         Int(rnn_gpsr_proposal_count),
+        Int(rnn_gpsr_populations),
+        Int(rnn_gpsr_population_size),
+        Int(rnn_gpsr_niterations),
+        Int(rnn_gpsr_ncycles_per_iteration),
         Int(rnn_gpsr_cycles),
         Int(rnn_gpsr_rounds),
         Float64(rnn_gpsr_feedback_fraction),
