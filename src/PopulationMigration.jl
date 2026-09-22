@@ -1,5 +1,6 @@
 module PopulationMigrationModule
 
+using Random: default_rng, rand
 using ..OptionsStructModule: AbstractOptions, IslandProfile
 import ..OptionsStructModule: specialized_options
 using ..OperatorsModule:
@@ -158,6 +159,28 @@ function profile_for_population(options::AbstractOptions, population::Integer)
     1 <= population <= length(profiles) ||
         throw(BoundsError(profiles, population))
     return profiles[population]
+end
+
+"""Return the population indices that share the destination's profile."""
+function population_profile_indices(options::AbstractOptions, population::Integer)
+    1 <= population <= options.populations ||
+        throw(BoundsError(1:options.populations, population))
+    profiles = hasproperty(options, :population_profiles) ?
+        options.population_profiles : nothing
+    profiles === nothing && return collect(1:options.populations)
+    profile = profiles[population]
+    return findall(==(profile.id), getfield.(profiles, :id))
+end
+
+"""Choose a random source population from the destination's profile group."""
+function random_migration_source(
+    options::AbstractOptions,
+    destination::Integer;
+    rng=default_rng(),
+)
+    candidates = filter(!=(destination), population_profile_indices(options, destination))
+    isempty(candidates) && return nothing
+    return rand(rng, candidates)
 end
 
 function profiled_options(options::AbstractOptions, population::Integer)

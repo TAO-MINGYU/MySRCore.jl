@@ -733,16 +733,56 @@ end
     @test_throws ArgumentError IslandProfile(exploration_floor=1.1)
 end
 
-@testset "Migration topology candidate pools" begin
+@testset "Profile-group migration candidate pools" begin
     Migration = MySRCore.SymbolicRegression.MigrationModule
     best_sub_pops = [(members=[1, 2],), (members=[3, 4],), (members=[5, 6],)]
-    @test Migration.migration_candidates(best_sub_pops, 1, :ring) == [5, 6]
-    @test Migration.migration_candidates(best_sub_pops, 2, :ring) == [1, 2]
-    @test Migration.migration_candidates(best_sub_pops, 3, :ring) == [3, 4]
-    @test Migration.migration_candidates(best_sub_pops, 2, :pooled) == [1, 2, 3, 4, 5, 6]
-    @test_throws ArgumentError Migration.migration_candidates(best_sub_pops, 1, :star)
+    @test Migration.migration_candidates(best_sub_pops, 1) == [1, 2]
+    @test Migration.migration_candidates(best_sub_pops, 2) == [3, 4]
+    @test Migration.migration_candidates(best_sub_pops, 3) == [5, 6]
+    @test_throws BoundsError Migration.migration_candidates(best_sub_pops, 0)
     @test Options(migration_policy=:best_plus_novelty).migration_policy == :best_plus_novelty
     @test_throws ArgumentError Options(migration_policy=:unknown)
+end
+
+@testset "Population profile quotas" begin
+    algebraic = IslandProfile(id=:algebraic, role=:algebraic)
+    trigonometric = IslandProfile(id=:trigonometric, role=:trigonometric)
+    options = Options(
+        populations=10,
+        population_profile_groups=[
+            PopulationProfileGroup(algebraic, 0.3),
+            PopulationProfileGroup(trigonometric, 0.7),
+        ],
+        default_plugins=(),
+    )
+    @test count(profile -> profile.id == :algebraic, options.population_profiles) == 3
+    @test count(profile -> profile.id == :trigonometric, options.population_profiles) == 7
+    @test population_profile_indices(options, 1) == [1, 2, 3]
+    @test population_profile_indices(options, 4) == collect(4:10)
+    @test random_migration_source(options, 1; rng=MersenneTwister(7)) in [2, 3]
+    @test random_migration_source(options, 4; rng=MersenneTwister(7)) in collect(5:10)
+    one_profile = Options(
+        populations=1,
+        population_profile_groups=[PopulationProfileGroup(algebraic, 1.0)],
+        default_plugins=(),
+    )
+    @test random_migration_source(one_profile, 1; rng=MersenneTwister(7)) === nothing
+    @test_throws ArgumentError Options(
+        populations=3,
+        population_profile_groups=[
+            PopulationProfileGroup(algebraic, 0.5),
+            PopulationProfileGroup(trigonometric, 0.25),
+        ],
+        default_plugins=(),
+    )
+    @test_throws ArgumentError Options(
+        populations=1,
+        population_profile_groups=[
+            PopulationProfileGroup(algebraic, 0.5),
+            PopulationProfileGroup(trigonometric, 0.5),
+        ],
+        default_plugins=(),
+    )
 end
 
 @testset "Migration novelty and profile compatibility" begin
@@ -774,11 +814,10 @@ end
     source = [(members=[plus_member],), (members=[minus_member],)]
     destination = Population([plus_member])
     # Structural novelty removes the duplicate plus tree from the destination;
-    # ring destination 1 receives only the predecessor (population 2).
+    # source population 2 supplies the minus candidate.
     @test Migration.migration_candidates(
         source,
-        1,
-        :ring;
+        2;
         policy=:best_plus_novelty,
         destination_pop=destination,
     ) == [minus_member]
@@ -789,14 +828,16 @@ end
     )
     @test isempty(Migration.migration_candidates(
         [(members=[plus_member],), (members=[minus_member],)],
-        1,
-        :ring;
+        2;
         policy=:best_plus_novelty,
         destination_pop=destination,
         profile=compatible_plus_only,
     ))
+    @test Migration.compatible_migration_candidates(
+        [plus_member, minus_member], compatible_plus_only
+    ) == [plus_member]
     @test_throws ArgumentError Migration.migration_candidates(
-        source, 1, :ring; policy=:unknown
+        source, 1; policy=:unknown
     )
 end
 
@@ -825,7 +866,6 @@ end
         ncycles_per_iteration=1,
         maxsize=7,
         population_profiles=[profile_a, profile_b],
-        migration_topology=:ring,
         migration_policy=:best_plus_novelty,
         default_plugins=(),
         save_to_file=false,

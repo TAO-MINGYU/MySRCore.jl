@@ -85,6 +85,26 @@ function IslandProfile(
 end
 
 """
+    PopulationProfileGroup(profile, share)
+
+Describe the fraction of populations assigned to one `IslandProfile`.  The
+`share` values are normalized into concrete population counts by `Options`.
+"""
+struct PopulationProfileGroup
+    profile::IslandProfile
+    share::Float64
+end
+
+function PopulationProfileGroup(profile::IslandProfile, share::Real)
+    isfinite(share) && share > 0 ||
+        throw(ArgumentError("population profile group share must be finite and positive."))
+    return PopulationProfileGroup(profile, Float64(share))
+end
+
+PopulationProfileGroup(profile::IslandProfile; share::Real) =
+    PopulationProfileGroup(profile, share)
+
+"""
 This struct defines how complexity is calculated.
 
 # Fields
@@ -292,13 +312,13 @@ struct Options{
     bumper::Val{_bumper}
     migration::Bool
     hof_migration::Bool
-    migration_topology::Symbol
     migration_policy::Symbol
     should_simplify::Bool
     should_optimize_constants::Bool
     output_directory::Union{String,Nothing}
     populations::Int
     population_profiles::Union{Nothing,Vector{IslandProfile}}
+    population_profile_groups::Union{Nothing,Vector{PopulationProfileGroup}}
     perturbation_factor::Float64
     batching::B
     batch_size::BS
@@ -470,12 +490,12 @@ function check_warm_start_compatibility(old_options::Options, new_options::Optio
         :mutation_affinity_exploration,
         :operator_affinity,
         :feature_affinity,
-        :migration_topology,
         :migration_policy,
         :maxsize,
         :maxdepth,
         :populations,
         :population_profiles,
+        :population_profile_groups,
         :population_size,
         :rnn_gpsr_seeding,
         :rnn_gpsr_seed_fraction,

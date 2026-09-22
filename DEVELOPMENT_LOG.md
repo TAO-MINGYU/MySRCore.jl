@@ -563,3 +563,12 @@
 - **Verification**：使用 `env_mysr`、Julia 1.10.3 和隔离可写 depot
   `/tmp/mysr-parent-survival-julia-depot`；`git diff --check` 通过。
 - **Unknown**：未运行大规模搜索或远程 benchmark；新策略的质量与资源收益仍未知。
+
+## 2026-09-22 - Population profile quotas and profile-local migration
+
+- 变更类型：population API 与 migration 契约重构。
+- Decision：新增 `PopulationProfileGroup` 与 `population_profile_groups`，share 总和必须为 1，Options 用最大余数法生成 population-local `IslandProfile` 映射；保留旧 `population_profiles` 逐 population 输入。
+- Decision：删除 `migration_topology`；普通 migration 由 profile 组内随机 source population 驱动，`migration_policy` 继续负责组内候选筛选；HOF migration 保留全局 frontier 来源并按目标 profile compatibility 过滤。
+- 影响路径：`src/OptionsStruct.jl`、`src/Options.jl`、`src/PopulationMigration.jl`、`src/Migration.jl`、`src/SymbolicRegression.jl`、`src/Core.jl`、`test/runtests.jl`。
+- 验证：使用临时 Julia project/depot 指向本 worktree，完整 `test/runtests.jl` 通过；profile quota 9/9、migration novelty 4/4、search integration 3/3；`git diff --check` 通过。
+- Unknown：没有运行 matched benchmark，不能据此声明搜索质量或资源收益改善。

@@ -60,6 +60,7 @@ using .OptionsStructModule:
     AbstractOptions,
     Options,
     IslandProfile,
+    PopulationProfileGroup,
     ComplexityMapping,
     specialized_options,
     operator_specialization,
@@ -72,7 +73,9 @@ using .OptionsStructModule:
 using .PopulationMigrationModule:
     ProfiledOptions,
     profiled_options,
-    profile_for_population
+    profile_for_population,
+    population_profile_indices,
+    random_migration_source
 using .OperatorsModule:
     get_safe_op,
     plus,

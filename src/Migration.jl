@@ -63,34 +63,30 @@ function _novel_migration_candidates(candidates, destination, profile)
     return isempty(novel) ? compatible : novel
 end
 
-"""
-    migration_candidates(best_sub_pops, destination, topology; kwargs...)
+"""Filter HOF or other global candidates to a target profile's legal members."""
+function compatible_migration_candidates(candidates, profile)
+    profile === nothing && return candidates
+    return [member for member in candidates if _profile_compatible(member, profile)]
+end
 
-Resolve the source candidate pool for one destination population.  `:pooled`
-preserves the historical all-island pool; `:ring` uses the predecessor island
-in a directed ring.  `:best_plus_novelty` additionally applies cost-first
-duplicate retention, structural novelty filtering, and the explicit profile
-compatibility mask.
+"""
+    migration_candidates(best_sub_pops, source; kwargs...)
+
+Resolve the candidate pool from one source population.  The caller chooses the
+source from the destination's profile group; this function only applies the
+configured group-local candidate policy.
 """
 function migration_candidates(
     best_sub_pops::AbstractVector,
-    destination::Integer,
-    topology::Symbol;
+    source::Integer;
     policy::Symbol=:best_only,
     destination_pop=nothing,
     profile=nothing,
 )
     isempty(best_sub_pops) && return eltype(best_sub_pops)[]
-    1 <= destination <= length(best_sub_pops) ||
-        throw(BoundsError(best_sub_pops, destination))
-    candidates = if topology === :ring
-        source = destination == 1 ? length(best_sub_pops) : destination - 1
-        best_sub_pops[source].members
-    elseif topology === :pooled
-        [member for pop in best_sub_pops for member in pop.members]
-    else
-        throw(ArgumentError("Unsupported migration topology: $topology"))
-    end
+    1 <= source <= length(best_sub_pops) ||
+        throw(BoundsError(best_sub_pops, source))
+    candidates = best_sub_pops[source].members
     policy === :best_only && return candidates
     policy === :best_plus_novelty ||
         throw(ArgumentError("Unsupported migration policy: $policy"))
@@ -113,10 +109,12 @@ function migrate!(
         throw(ArgumentError("migration fraction must be finite and in [0, 1]."))
     base_pop = migration.second
     population_size = length(base_pop.members)
+    population_size == 0 && return nothing
     mean_number_replaced = population_size * frac
     num_replace = poisson_sample(rng, mean_number_replaced)
 
     migrant_candidates = migration.first
+    isempty(migrant_candidates) && return nothing
 
     # Ensure `replace=true` is a valid setting:
     num_replace = min(num_replace, length(migrant_candidates))

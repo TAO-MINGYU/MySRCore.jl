@@ -40,7 +40,11 @@ using ..MutationWeightsModule: MutationWeightsModule, MutationWeights, _mutation
 using ..MutationsModule: MutationsModule
 using ..CrossoversModule: CrossoversModule
 import ..OptionsStructModule: Options
-using ..OptionsStructModule: ComplexityMapping, operator_specialization, IslandProfile
+using ..OptionsStructModule:
+    ComplexityMapping,
+    operator_specialization,
+    IslandProfile,
+    PopulationProfileGroup
 using ..MutationAffinityModule: build_operator_affinity, build_feature_affinity
 using ..PluginModule:
     default_adaptive_parsimony_plugin,
@@ -462,7 +466,11 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `population_profiles`: Optional vector of [`IslandProfile`](@ref) values, one
     per population. Profiles provide soft, population-specific operator,
     mutation, and crossover preferences while retaining the global safety
-    constraints.
+    constraints. This is the explicit per-population compatibility form.
+- `population_profile_groups`: Optional vector of [`PopulationProfileGroup`](@ref)
+    values. Each group contains an `IslandProfile` and a positive `share`; the
+    shares must sum to one and are converted to population counts with the
+    largest-remainder rule.
 - `use_frequency`: Whether to use a parsimony that adapts to the
     relative proportion of equations at each complexity; this will
     ensure that there are a balanced number of equations considered
@@ -486,12 +494,7 @@ const OPTION_DESCRIPTIONS = """- `defaults`: What set of defaults to use for `Op
 - `migration`: Whether to migrate equations between processes.
 - `hof_migration`: Whether to migrate equations from the hall of fame
     to processes.
-- `migration_topology`: Candidate migration topology, either `:pooled` (the
-    historical all-population pool) or `:ring` (directed predecessor-to-current
-    migration).
 - `migration_policy`: Candidate selection policy, either `:best_only` (the
-    historical best-subpopulation pool) or `:best_plus_novelty` (structural
-    duplicate filtering with a fitness-first order).
 - `fraction_replaced`: What fraction of each population to replace with
     migrated equations at the end of each cycle.
 - `fraction_replaced_hof`: What fraction to replace with hall of fame
@@ -631,6 +634,47 @@ https://github.com/MilesCranmer/PySR/discussions/115.
 # Arguments
 $(OPTION_DESCRIPTIONS)
 """
+function _expand_population_profile_groups(
+    groups, populations::Integer
+)
+    normalized = PopulationProfileGroup[
+        group isa PopulationProfileGroup ? group :
+        throw(ArgumentError(
+            "`population_profile_groups` must contain PopulationProfileGroup values."
+        )) for group in groups
+    ]
+    isempty(normalized) &&
+        throw(ArgumentError("`population_profile_groups` must not be empty."))
+    ids = getfield.(getfield.(normalized, :profile), :id)
+    length(unique(ids)) == length(ids) ||
+        throw(ArgumentError("population profile group ids must be unique."))
+    shares = getfield.(normalized, :share)
+    isapprox(sum(shares), 1.0; atol=1e-10, rtol=1e-10) ||
+        throw(ArgumentError("population profile group shares must sum to 1.0."))
+
+    ideal = shares .* populations
+    counts = floor.(Int, ideal)
+    remaining = populations - sum(counts)
+    order = sort(
+        collect(eachindex(normalized));
+        by=i -> (-ideal[i] + counts[i], i),
+    )
+    for i in order[1:remaining]
+        counts[i] += 1
+    end
+    all(>(0), counts) ||
+        throw(ArgumentError(
+            "each population profile group must receive at least one population; " *
+            "increase `populations` or remove zero-sized groups."
+        ))
+
+    profiles = IslandProfile[]
+    for (group, count) in zip(normalized, counts)
+        append!(profiles, fill(group.profile, count))
+    end
+    return profiles
+end
+
 @unstable @save_kwargs DEFAULT_OPTIONS function Options(;
     # Note: We can only `@nospecialize` on the first 32 arguments, which is why
     #       we have to declare some of these later on.
@@ -644,6 +688,7 @@ $(OPTION_DESCRIPTIONS)
     ## 2. Setting the Search Size:
     @nospecialize(populations::Union{Nothing,Integer} = nothing),
     @nospecialize(population_profiles=nothing),
+    @nospecialize(population_profile_groups=nothing),
     @nospecialize(population_size::Union{Nothing,Integer} = nothing),
     @nospecialize(ncycles_per_iteration::Union{Nothing,Integer} = nothing),
     ## 3. The Objective:
@@ -765,7 +810,6 @@ $(OPTION_DESCRIPTIONS)
     ## 8. Migration between Populations:
     migration::Bool=true,
     hof_migration::Bool=true,
-    migration_topology::Symbol=:pooled,
     migration_policy::Symbol=:best_only,
     fraction_replaced::Union{Real,Nothing}=nothing,
     fraction_replaced_hof::Union{Real,Nothing}=nothing,
@@ -1245,7 +1289,23 @@ $(OPTION_DESCRIPTIONS)
     )
     _feature_affinity = build_feature_affinity(feature_affinity)
 
-    population_profiles = if population_profiles === nothing
+    population_profile_groups = if population_profile_groups === nothing
+        nothing
+    else
+        PopulationProfileGroup[
+            group isa PopulationProfileGroup ? group :
+            throw(ArgumentError(
+                "`population_profile_groups` must contain PopulationProfileGroup values."
+            )) for group in population_profile_groups
+        ]
+    end
+    population_profiles = if population_profiles !== nothing && population_profile_groups !== nothing
+        throw(ArgumentError(
+            "pass either `population_profiles` or `population_profile_groups`, not both."
+        ))
+    elseif population_profile_groups !== nothing
+        _expand_population_profile_groups(population_profile_groups, populations)
+    elseif population_profiles === nothing
         nothing
     else
         profiles = IslandProfile[
@@ -1257,8 +1317,6 @@ $(OPTION_DESCRIPTIONS)
             throw(ArgumentError("`population_profiles` must contain exactly one profile per population."))
         profiles
     end
-    migration_topology in (:pooled, :ring) ||
-        throw(ArgumentError("`migration_topology` must be `:pooled` or `:ring`."))
     migration_policy in (:best_only, :best_plus_novelty) ||
         throw(ArgumentError(
             "`migration_policy` must be `:best_only` or `:best_plus_novelty`."
@@ -1496,13 +1554,13 @@ $(OPTION_DESCRIPTIONS)
         Val(bumper),
         migration,
         hof_migration,
-        migration_topology,
         migration_policy,
         should_simplify,
         should_optimize_constants,
         _output_directory,
         populations,
         population_profiles,
+        population_profile_groups,
         perturbation_factor,
         batching,
         batch_size,

@@ -10,6 +10,7 @@ export Population,
     HallOfFame,
     Options,
     IslandProfile,
+    PopulationProfileGroup,
     OperatorEnum,
     Dataset,
     MutationWeights,
@@ -33,6 +34,8 @@ export Population,
     SubtreeCrossover,
     SizeMatchedCrossover,
     ProfiledOptions,
+    population_profile_indices,
+    random_migration_source,
     AdaptiveParsimonyPlugin,
     AdaptiveMutationWeightsPlugin,
     MutationBurstPlugin,
@@ -136,7 +139,7 @@ using Distributed
 using Printf: @printf, @sprintf
 using Pkg: Pkg
 using TOML: parsefile
-using Random: seed!, shuffle!
+using Random: seed!, shuffle!, default_rng
 using Reexport
 using ProgressMeter: finish!
 using DynamicExpressions:
@@ -305,7 +308,10 @@ using .CoreModule:
     AbstractOptions,
     Options,
     IslandProfile,
+    PopulationProfileGroup,
     ProfiledOptions,
+    population_profile_indices,
+    random_migration_source,
     ComplexityMapping,
     dimension_policy,
     WarmStartIncompatibleError,
@@ -463,7 +469,10 @@ using .PopulationSeedingModule:
 using .ProgressBarsModule: WrappedProgressBar
 using .TracingModule:
     initialize_trace!, new_trace, next_trace_iteration, trace_iteration_start!, write_trace
-using .MigrationModule: migrate!, migration_candidates
+using .MigrationModule:
+    migrate!,
+    migration_candidates,
+    compatible_migration_candidates
 using .SearchUtilsModule:
     AbstractSearchState,
     SearchState,
@@ -1365,25 +1374,34 @@ function _main_search_loop!(
             ###################################################################
             # Migration #######################################################
             if options.migration
-                migration_topology = hasproperty(options, :migration_topology) ?
-                    options.migration_topology : :pooled
-                migration_policy = hasproperty(options, :migration_policy) ?
-                    options.migration_policy : :best_only
-                destination_profile = profile_for_population(options, i)
-                candidates = migration_candidates(
-                    state.best_sub_pops[j], i, migration_topology;
-                    policy=migration_policy,
-                    destination_pop=cur_pop,
-                    profile=destination_profile,
-                )
-                migrate!(
-                    candidates => cur_pop,
-                    options;
-                    frac=options.fraction_replaced,
-                )
+                source = random_migration_source(options, i; rng=default_rng())
+                if source !== nothing
+                    destination_profile = profiled_options(options, i)
+                    candidates = migration_candidates(
+                        state.best_sub_pops[j], source;
+                        policy=options.migration_policy,
+                        destination_pop=cur_pop,
+                        profile=destination_profile,
+                    )
+                    migrate!(
+                        candidates => cur_pop,
+                        options;
+                        frac=options.fraction_replaced,
+                    )
+                end
             end
             if options.hof_migration && length(dominating) > 0
-                migrate!(dominating => cur_pop, options; frac=options.fraction_replaced_hof)
+                destination_profile = profiled_options(options, i)
+                hof_candidates = compatible_migration_candidates(
+                    dominating, destination_profile
+                )
+                if !isempty(hof_candidates)
+                    migrate!(
+                        hof_candidates => cur_pop,
+                        options;
+                        frac=options.fraction_replaced_hof,
+                    )
+                end
             end
             if !isempty(state.seed_members[j])
                 migrate!(
