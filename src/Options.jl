@@ -653,12 +653,18 @@ function _expand_population_profile_groups(
     length(unique(ids)) == length(ids) ||
         throw(ArgumentError("population profile group ids must be unique."))
     shares = getfield.(normalized, :share)
-    isapprox(sum(shares), 1.0; atol=1e-10, rtol=1e-10) ||
+    share_total = sum(shares)
+    isapprox(share_total, 1.0; atol=1e-10, rtol=1e-10) ||
         throw(ArgumentError("population profile group shares must sum to 1.0."))
 
-    ideal = shares .* populations
+    # Normalize a value that passed the tolerance check before converting it to
+    # integer population counts. This keeps the largest-remainder arithmetic
+    # well-defined even for very large population counts.
+    ideal = (shares ./ share_total) .* populations
     counts = floor.(Int, ideal)
     remaining = populations - sum(counts)
+    0 <= remaining <= length(normalized) ||
+        throw(ArgumentError("population profile quota rounding produced invalid counts."))
     order = sort(
         collect(eachindex(normalized));
         by=i -> (-ideal[i] + counts[i], i),

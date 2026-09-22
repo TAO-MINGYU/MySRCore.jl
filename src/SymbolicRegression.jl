@@ -310,6 +310,7 @@ using .CoreModule:
     IslandProfile,
     PopulationProfileGroup,
     ProfiledOptions,
+    migration_profile,
     population_profile_indices,
     random_migration_source,
     ComplexityMapping,
@@ -1376,7 +1377,7 @@ function _main_search_loop!(
             if options.migration
                 source = random_migration_source(options, i; rng=default_rng())
                 if source !== nothing
-                    destination_profile = profiled_options(options, i)
+                    destination_profile = migration_profile(options, i)
                     candidates = migration_candidates(
                         state.best_sub_pops[j], source;
                         policy=options.migration_policy,
@@ -1391,7 +1392,7 @@ function _main_search_loop!(
                 end
             end
             if options.hof_migration && length(dominating) > 0
-                destination_profile = profiled_options(options, i)
+                destination_profile = migration_profile(options, i)
                 hof_candidates = compatible_migration_candidates(
                     dominating, destination_profile
                 )

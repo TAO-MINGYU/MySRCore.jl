@@ -94,9 +94,10 @@ struct PopulationProfileGroup
     profile::IslandProfile
     share::Float64
     function PopulationProfileGroup(profile::IslandProfile, share::Real)
-        isfinite(share) && share > 0 ||
+        normalized_share = Float64(share)
+        isfinite(normalized_share) && normalized_share > 0 ||
             throw(ArgumentError("population profile group share must be finite and positive."))
-        return new(profile, Float64(share))
+        return new(profile, normalized_share)
     end
 end
 

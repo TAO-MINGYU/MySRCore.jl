@@ -572,3 +572,9 @@
 - 影响路径：`src/OptionsStruct.jl`、`src/Options.jl`、`src/PopulationMigration.jl`、`src/Migration.jl`、`src/SymbolicRegression.jl`、`src/Core.jl`、`test/runtests.jl`。
 - 验证：使用临时 Julia project/depot 指向本 worktree，完整 `test/runtests.jl` 通过；profile quota 9/9、migration novelty 4/4、search integration 3/3；`git diff --check` 通过。
 - Unknown：没有运行 matched benchmark，不能据此声明搜索质量或资源收益改善。
+
+## 2026-09-22 - Population migration quality audit
+
+- **修复**：未配置 population profile 时，migration compatibility 现在传递 `nothing`，不再把全局 `Options.operator_affinity` 误当作目标 profile，从而保持默认/HOF 路径的兼容行为。
+- **修复**：`PopulationProfileGroup` 在转换为 `Float64` 后重新检查有限性和正性；quota 取整前归一化通过容差检查的 share 总和，避免大 population 下出现无效剩余数。
+- **Verification**：完整 `test/runtests.jl` 通过；quota `17/17`、profile-group search integration `9/9`、MySR population migration bridge `4 passed`，Julia parse、Python compileall 与 diff check 均通过。

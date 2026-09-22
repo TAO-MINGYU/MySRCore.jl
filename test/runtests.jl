@@ -750,6 +750,7 @@ end
     for share in (0.0, -0.1, Inf, NaN)
         @test_throws ArgumentError PopulationProfileGroup(algebraic, share)
     end
+    @test_throws ArgumentError PopulationProfileGroup(algebraic, big(10)^1000)
     @test PopulationProfileGroup(algebraic, 3 // 10).share ≈ 0.3
     options = Options(
         populations=10,
@@ -933,6 +934,15 @@ end
     @test population_profile_indices(grouped_options, 3) == [3, 4]
     @test random_migration_source(grouped_options, 1; rng=MersenneTwister(7)) == 2
     @test random_migration_source(grouped_options, 3; rng=MersenneTwister(7)) == 4
+    unprofiled_options = Options(
+        binary_operators=(+, -),
+        unary_operators=(),
+        populations=2,
+        default_plugins=(),
+    )
+    @test MySRCore.SymbolicRegression.CoreModule.migration_profile(
+        unprofiled_options, 1
+    ) === nothing
 end
 
 @testset "RNN-GPSR population seeding" begin

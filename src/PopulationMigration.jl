@@ -161,6 +161,12 @@ function profile_for_population(options::AbstractOptions, population::Integer)
     return profiles[population]
 end
 
+"""Return the effective migration profile, or `nothing` for unprofiled runs."""
+function migration_profile(options::AbstractOptions, population::Integer)
+    profile = profile_for_population(options, population)
+    return profile === nothing ? nothing : profiled_options(options, profile)
+end
+
 """Return the population indices that share the destination's profile."""
 function population_profile_indices(options::AbstractOptions, population::Integer)
     1 <= population <= options.populations ||

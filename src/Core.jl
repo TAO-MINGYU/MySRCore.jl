@@ -74,6 +74,7 @@ using .PopulationMigrationModule:
     ProfiledOptions,
     profiled_options,
     profile_for_population,
+    migration_profile,
     population_profile_indices,
     random_migration_source
 using .OperatorsModule:
