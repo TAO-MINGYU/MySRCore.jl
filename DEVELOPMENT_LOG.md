@@ -692,3 +692,16 @@
   完整 `Pkg.test("MySRCore"; coverage=false)` 通过，`git diff --check` 通过。
 - 范围：只处理指定的 child-refinement worktree；其他 worktree 和外层 MySR 未相关本地改动未检查、未修改。
 - 待执行：本记录提交后推送 canonical `main`，再删除准确的优化 worktree 与其 feature 分支。
+
+## 2026-09-23 - Preserve child refinement evaluation accounting
+
+- **范围**：从当前 canonical `main@9db453d` 重新建立 paired worktree，吸收其既有
+  RNN-GPSR lightweight budget、profile migration、default-policy 和 child refinement 更新。
+- **修复**：`_optimize_child_member` 在常数优化已完成、半理论量纲系数恢复随后失败时，
+  fallback 现在保留 optimizer 已消耗的 evaluation count；无效 child 仍恢复原始 member，
+  不会让轻量 RNN-GPSR 的预算统计静默减少。
+- **回归**：新增 `Semi-theoretical C_dim survives crossover and mutation` 中的失败恢复
+  场景，确认 fallback member 有限且 `fallback_evals > 0`。
+- **验证**：Julia 1.10.3 临时可写 depot/project 指向本 worktree；完整
+  `Pkg.test("MySRCore"; coverage=false)` 通过，新增 testset `15/15`；`git diff --check`
+  通过。匹配 benchmark 与完整 Python 405 项仍未运行。

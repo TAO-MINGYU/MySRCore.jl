@@ -173,6 +173,10 @@ function _optimize_child_member(
         setfield!(member, :complexity, original_complexity)
         member
     end
+    # Keep the optimizer count visible to the fallback path.  Optimizer or
+    # dimensional-restoration failures must not make completed evaluations
+    # disappear from the search budget accounting.
+    num_evals = 0.0
     try
         optimized, num_evals = if mode === :safe
             bounded = bounded_optimizer_options(options; iterations=4, f_calls_limit=64)
@@ -225,7 +229,7 @@ function _optimize_child_member(
         # A single invalid child must not abort an otherwise valid evolutionary
         # run.  The caller still has the evaluated, unoptimized member as a
         # safe fallback.
-        return restore_original!(), 0.0
+        return restore_original!(), num_evals
     end
 end
 

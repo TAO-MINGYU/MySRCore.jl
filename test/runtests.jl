@@ -2113,6 +2113,50 @@ end
         child_fit.tree, fit_options
     ) == 2.5
     @test child_fit.loss < child_fit_parent.loss
+
+    # A post-optimizer dimensional restore failure must retain evaluations
+    # already spent by the optimizer while returning the raw child safely.
+    fallback_options = Options(
+        formula_type=:semi_theoretical,
+        default_plugins=(),
+        populations=1,
+        population_size=4,
+        tournament_selection_n=2,
+        ncycles_per_iteration=1,
+        maxsize=9,
+        deterministic=true,
+        optimizer_probability=1.0,
+        should_simplify=false,
+        save_to_file=false,
+    )
+    fallback_tree = MySRCore.SymbolicRegression.wrap_dimensional_scale(
+        parse_expression(
+            "x1 * 0.5";
+            operators=fallback_options.operators,
+            variable_names=["x1"],
+            node_type=Node{Float64,2},
+        ),
+        fallback_options;
+        coefficient=2.5,
+    )
+    fallback_parent = PopMember(
+        fit_dataset, fallback_tree, fallback_options; deterministic=true
+    )
+    fallback_child, fallback_evals = MySRCore.SymbolicRegression.refine_child(
+        fit_dataset,
+        fallback_parent,
+        fallback_parent.tree,
+        fallback_parent.cost,
+        fallback_parent.loss,
+        fallback_options;
+        complexity=MySRCore.SymbolicRegression.compute_complexity(
+            fallback_parent.tree, fallback_options
+        ),
+        eval_context=(:invalid_eval_context,),
+        rng=MersenneTwister(17),
+    )
+    @test fallback_evals > 0
+    @test isfinite(fallback_child.loss)
 end
 
 @testset "Formula type dimensional initial generation" begin
