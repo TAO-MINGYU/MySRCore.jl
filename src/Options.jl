@@ -767,7 +767,7 @@ end
     @nospecialize(default_mutations::Union{AbstractVector,Tuple,Nothing} = nothing),
     @nospecialize(mutations::Union{AbstractVector,Tuple,Nothing} = nothing),
     @nospecialize(default_crossovers::Union{AbstractVector,Tuple,Nothing} = nothing),
-    @nospecialize(crossovers::Union{AbstractVector,Tuple,Nothing} = nothing),
+    crossovers::Union{AbstractVector,Tuple,Nothing} = nothing,
     crossover_probability::Union{Real,Nothing} = nothing,
     annealing::Union{Bool,Nothing} = nothing,
     alpha::Union{Nothing,Real} = nothing,

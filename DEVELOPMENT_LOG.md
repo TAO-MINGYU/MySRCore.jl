@@ -705,3 +705,13 @@
 - **验证**：Julia 1.10.3 临时可写 depot/project 指向本 worktree；完整
   `Pkg.test("MySRCore"; coverage=false)` 通过，新增 testset `15/15`；`git diff --check`
   通过。匹配 benchmark 与完整 Python 405 项仍未运行。
+
+## 2026-09-23 - Remove unsupported Options @nospecialize annotation
+
+- **范围**：从当前 canonical `main@d98e67a` 建立 paired worktree，复查最新 child-refinement
+  和 AFE bridge 所依赖的 Options 构造器。
+- **质量修复**：Options 关键字参数超过 Julia `@nospecialize` 支持的前 32 个位置后，
+  `crossovers` 参数改为普通标注；构造器参数、默认值和运行时语义保持不变。
+- **验证**：完整 `Pkg.test("MySRCore"; coverage=false)` 通过；worktree 预编译不再输出
+  `@nospecialize annotation only supported on the first 32 arguments` 警告；`git diff --check`
+  通过。
