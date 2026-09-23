@@ -668,3 +668,17 @@
   canonical、未删除 worktree、未推送。
 - 遗留：尚未运行完整 Python 405 项或正式 matched P/M benchmark；child refinement 的
   额外 evaluations 与默认策略长期收益需后续基准测试确认。
+
+## 2026-09-23 - Child refinement determinism and C_dim quality repair
+
+- 变更类型：合并前回归修复与代码质量改进。
+- 修复：safe child refinement 取消随机重启，保留 child 创建时的 birth，避免常数精修被
+  age-fitness Pareto 当作额外进化世代并破坏固定 seed 的重复性；semi-theoretical
+  `C_dim` 内层重拟合正确传入 `options`，不再因参数缺失被 fallback catch 静默跳过。
+- 回归：固定 seed 的 RNN-GPSR 前沿连续重复两次保持一致；新增 `C_dim` 外部系数保持和
+  内层常数改善断言。
+- 验证：env_1_mysr Julia 1.10.3、隔离可写 depot/project；完整
+  `Pkg.test("MySRCore"; coverage=false)` 通过，新增 refinement testset `11/11`；
+  Float32 unary serial smoke 通过；`git diff --check` 通过。
+- 遗留：未运行完整 Python 405 项或 matched P/M benchmark；默认 child refinement 的
+  长期性能收益仍需正式基准测试确认。

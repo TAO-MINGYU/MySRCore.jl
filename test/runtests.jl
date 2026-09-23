@@ -1215,7 +1215,8 @@ end
         ]
     end
 
-    @test seeded_frontier(2026) == seeded_frontier(2026)
+    reference_frontier = seeded_frontier(2026)
+    @test all(seeded_frontier(2026) == reference_frontier for _ in 1:2)
 end
 
 @testset "RNN-GPSR lightweight budget is isolated from formal GPSR" begin
@@ -2081,6 +2082,37 @@ end
     @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
         optimized_member.tree, fit_options
     ) ≈ 3.0 atol=1e-8
+
+    child_fit_tree = MySRCore.SymbolicRegression.wrap_dimensional_scale(
+        parse_expression(
+            "x1 * 0.5";
+            operators=fit_options.operators,
+            variable_names=["x1"],
+            node_type=Node{Float64,2},
+        ),
+        fit_options;
+        coefficient=2.5,
+    )
+    child_fit_parent = PopMember(
+        fit_dataset, child_fit_tree, fit_options; deterministic=true
+    )
+    child_fit, child_fit_evals = MySRCore.SymbolicRegression.refine_child(
+        fit_dataset,
+        child_fit_parent,
+        child_fit_parent.tree,
+        child_fit_parent.cost,
+        child_fit_parent.loss,
+        fit_options;
+        complexity=MySRCore.SymbolicRegression.compute_complexity(
+            child_fit_parent.tree, fit_options
+        ),
+        rng=MersenneTwister(17),
+    )
+    @test child_fit_evals > 0
+    @test MySRCore.SymbolicRegression.dimensional_scale_coefficient(
+        child_fit.tree, fit_options
+    ) == 2.5
+    @test child_fit.loss < child_fit_parent.loss
 end
 
 @testset "Formula type dimensional initial generation" begin

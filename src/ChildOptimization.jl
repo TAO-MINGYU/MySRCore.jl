@@ -182,18 +182,24 @@ function _optimize_child_member(
                 options;
                 rng=rng,
                 optimizer_options_override=bounded,
-                optimizer_nrestarts_override=1,
+                optimizer_nrestarts_override=0,
             )
         else
             optimize_constants(dataset, member, options; rng=rng)
         end
+        # Child refinement is part of evaluating one offspring, not a new
+        # evolutionary generation.  The shared constant optimizer refreshes
+        # `birth` when a fit improves the member; preserve the child lineage
+        # timestamp here so age-aware survival remains deterministic and does
+        # not reward an internal refinement step as an extra generation.
+        setfield!(optimized, :birth, original_birth)
         dimensional_coefficient === nothing && return optimized, num_evals
 
         # Refit candidates may include the protected semi-theoretical outer
         # coefficient. Restore its lineage value and keep the fitted inner
         # constants only when the restored expression is still an improvement.
         restored_tree = wrap_dimensional_scale(
-            unwrap_dimensional_scale(optimized.tree),
+            unwrap_dimensional_scale(optimized.tree, options),
             options;
             coefficient=dimensional_coefficient,
         )
@@ -211,6 +217,7 @@ function _optimize_child_member(
             setfield!(optimized, :cost, restored_cost)
             setfield!(optimized, :loss, restored_loss)
             setfield!(optimized, :complexity, restored_complexity)
+            setfield!(optimized, :birth, original_birth)
             return optimized, num_evals
         end
         return restore_original!(), num_evals
