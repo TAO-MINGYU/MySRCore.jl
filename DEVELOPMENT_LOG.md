@@ -682,3 +682,13 @@
   Float32 unary serial smoke 通过；`git diff --check` 通过。
 - 遗留：未运行完整 Python 405 项或 matched P/M benchmark；默认 child refinement 的
   长期性能收益仍需正式基准测试确认。
+
+## 2026-09-23 - Child refinement canonical merge closure
+
+- 收口：在重新读取 canonical `main@9b31167` 并保留其本地 RNN-GPSR 提交后，将
+  `feature/constant-structure-optimization-20260922` 快进合并至 `main`，当前代码提交为
+  `5c6c495`；保留备份引用 `backup/constant-structure-optimization-20260923-pre-merge`。
+- 验证：canonical checkout 的 `pathof(MySRCore)` 指向当前 `/data5/taomingyu_5/MySR/MySRCore.jl`；
+  完整 `Pkg.test("MySRCore"; coverage=false)` 通过，`git diff --check` 通过。
+- 范围：只处理指定的 child-refinement worktree；其他 worktree 和外层 MySR 未相关本地改动未检查、未修改。
+- 待执行：本记录提交后推送 canonical `main`，再删除准确的优化 worktree 与其 feature 分支。
