@@ -90,6 +90,8 @@ prediction, did_succeed = eval_tree_array(tree, X, options)
 | Evaluation | Fast expression evaluation with explicit success flags for invalid numerical results. |
 | Complexity control | Complexity scoring and Pareto-frontier maintenance for interpretable model selection. |
 | Constant optimization | Backend-owned optimization of numeric constants in candidate expressions. |
+| Child refinement | Optional bounded optimization and simplification of newly generated children before acceptance. |
+| Parent selection | Tournament or epsilon-lexicase selection with adaptive MAD, absolute, or relative epsilon thresholds. |
 | Surrogate-assisted evaluation | Optional local KNN gating of expensive candidate evaluations; disabled by default, trained only from true evaluations, and synchronized between populations through immutable round snapshots. |
 | Dimensional analysis | Static dimension inference and hard candidate checks for constrained formula types. |
 | Initialization | User guesses and optional RNN-GPSR proposal callbacks before formal search. |
@@ -146,6 +148,11 @@ The two repositories have deliberately separate responsibilities:
 | **MySRCore.jl** | Julia expression search, evaluation, dimensional legality, constant optimization, and HOF maintenance. |
 
 Use MySR when you want a Python and scikit-learn style workflow. Use MySRCore directly when you need low-level Julia control, custom search integration, or direct access to expression and search internals.
+
+The Python bridge forwards the canonical `populations` and `population_size`
+fields and exposes the optional `child_refinement`, `epsilon`, and
+`epsilon_mode` controls without changing their backend defaults. MySRCore remains
+the authority for validating these search options.
 
 ## Architecture
 

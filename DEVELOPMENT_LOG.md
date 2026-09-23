@@ -715,3 +715,10 @@
 - **验证**：完整 `Pkg.test("MySRCore"; coverage=false)` 通过；worktree 预编译不再输出
   `@nospecialize annotation only supported on the first 32 arguments` 警告；`git diff --check`
   通过。
+
+## 2026-09-23 — MySR bridge contract documentation alignment
+
+- 范围：paired worktree `contract-quality-20260923`，复核 MySRCore v1.1.3 public Options 与 Python bridge 的共同契约。
+- 变更：README 增加 child refinement、epsilon-lexicase threshold 和 canonical population option 说明；未改变搜索算法、Options 字段或既有后端校验。
+- 验证：完整 `Pkg.test("MySRCore"; coverage=false)` 通过；`pathof(MySRCore)` 指向本 worktree；`git diff --check` 通过。
+- 限制：本轮未运行 matched P/M benchmark；Python 完整 suite 的既有 `using SymbolicRegression` plugin 测试需要后续修复测试环境/模块名契约。
