@@ -2431,3 +2431,5 @@ end
     @test tree.op == 1
     @test spec.structure.num_features == (; f=1, g=1)
 end
+
+include("final_refinement.jl")
