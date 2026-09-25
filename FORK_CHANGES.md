@@ -1,5 +1,13 @@
 # Fork changes
 
+## 2026-09-25 - MySRCore 1.3.0 final refinement
+
+- Added the default-off final semantic subtree refinement stage after all search
+  cycles, with run-local static/dynamic libraries, bounded proposals, optional
+  validation selection, and non-destructive reports.
+- Added compatibility metadata and hard budget enforcement for reusable library
+  entries and constant optimization.
+
 ## 2026-09-25 - MySRCore 1.2.0 baseline
 
 - Tagged the canonical backend baseline before the opt-in final semantic

@@ -729,6 +729,16 @@
 - 变更：README 增加 child refinement、epsilon-lexicase threshold 和 canonical population option 说明；未改变搜索算法、Options 字段或既有后端校验。
 - 验证：完整 `Pkg.test("MySRCore"; coverage=false)` 通过；`pathof(MySRCore)` 指向本 worktree；`git diff --check` 通过。
 - 限制：本轮未运行 matched P/M benchmark；Python 完整 suite 的既有 `using SymbolicRegression` plugin 测试需要后续修复测试环境/模块名契约。
+
+## 2026-09-25 - MySRCore 1.3.0 final refinement release
+
+- **实现**：合并 `feature/final-refinement-semantic-library-20260925`，加入默认关闭的
+  final semantic subtree refinement API；最终阶段只在全部 cycle 完成后运行。
+- **质量修复**：语义签名带数据集上下文，library entry 带输入特征/量纲元数据，proposal
+  使用温度和历史 gain，validation cost 使用缓存，常数优化严格受 `max_evals` 约束。
+- **验证**：refinement focused test `17/17`；完整 `Pkg.test("MySRCore"; coverage=false)` 通过；
+  默认关闭 Python bridge smoke `2 passed`；`git diff --check` 通过。
+- **发布**：本提交完成后创建 annotated tag `v1.3.0`，并与 `v1.2.0` 一并推送到 GitHub。
 # 2026-09-25 — Final semantic subtree refinement worktree
 
 - 基线：`main@49cce63`；worktree `worktrees/final-refinement-semantic-library-20260925/MySRCore.jl`，分支 `feature/final-refinement-semantic-library-20260925`；保留 canonical 与其他 worktree 不变。

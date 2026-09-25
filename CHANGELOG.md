@@ -1,5 +1,12 @@
 # Changelog
 
+## MySRCore 1.3.0 (2026-09-25)
+
+- Added the opt-in final semantic subtree refinement API with bounded beam
+  replacement, static/dynamic libraries, validation selection, and reports.
+- Hardened semantic signature context, proposal weighting, validation caching,
+  dimensional compatibility filtering, and strict evaluation budgets.
+
 ## MySRCore 1.2.0 (2026-09-25)
 
 - Synchronized the backend release metadata for the pre-final-refinement
