@@ -722,3 +722,9 @@
 - 变更：README 增加 child refinement、epsilon-lexicase threshold 和 canonical population option 说明；未改变搜索算法、Options 字段或既有后端校验。
 - 验证：完整 `Pkg.test("MySRCore"; coverage=false)` 通过；`pathof(MySRCore)` 指向本 worktree；`git diff --check` 通过。
 - 限制：本轮未运行 matched P/M benchmark；Python 完整 suite 的既有 `using SymbolicRegression` plugin 测试需要后续修复测试环境/模块名契约。
+# 2026-09-25 — Final semantic subtree refinement worktree
+
+- 基线：`main@49cce63`；worktree `worktrees/final-refinement-semantic-library-20260925/MySRCore.jl`，分支 `feature/final-refinement-semantic-library-20260925`；保留 canonical 与其他 worktree 不变。
+- 实现：新增默认关闭的 `FinalRefinement` API，包含独立 options/library/report/result 类型、静态内置项与用户项、HOF/最终种群 Top-K 动态项、受限非 root subtree beam replacement、主数据拟合和可选 validation 选择；自动入口位于主循环之后、teardown 之前，手动入口保持输入不变。
+- 验证：源码解析与 `git diff --check` 通过；手动/自动入口 smoke 通过；新增 refinement testset `11/11`；完整 `Pkg.test("MySRCore"; coverage=false)` 通过；默认关闭 Python bridge contract smoke `2 passed`。
+- 收口：worktree 分支已提交 `fe977ed`；不合并、不 push、不删除 worktree，等待用户决定。

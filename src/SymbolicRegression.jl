@@ -7,6 +7,11 @@ export Population,
     SurrogateDecision,
     SurrogateSnapshot,
     SurrogateReport,
+    FinalRefinementOptions,
+    FinalRefinementLibrary,
+    FinalRefinementLibraryEntry,
+    FinalRefinementReport,
+    FinalRefinementResult,
     HallOfFame,
     Options,
     IslandProfile,
@@ -63,6 +68,7 @@ export Population,
 
     #Functions:
     equation_search,
+    finalize_search,
     parent_selection_diagnostic,
     epsilon_lexicase_index,
     DEFAULT_EPSILON,
@@ -109,6 +115,8 @@ export Population,
     plugin_mutations,
     plugin_crossovers,
     surrogate_stats,
+    add_final_refinement_term!,
+    add_final_refinement_string!,
 
     #Operators
     plus,
@@ -303,6 +311,11 @@ using DispatchDoctor: @stable, @unstable
     __dispatch_doctor_unsable_test() = Val(rand(1:10))
 end
 
+# Final refinement is an opt-in master-side pass. Keep it outside the
+# DispatchDoctor include block so its bounded, dynamic proposal loop does not
+# affect the compilation of the ordinary worker path.
+include("FinalRefinement.jl")
+
 using .CoreModule:
     DATA_TYPE,
     LOSS_TYPE,
@@ -465,6 +478,15 @@ using .SurrogateModule:
     surrogate_stats,
     surrogate_report,
     merge_surrogate_reports
+using .FinalRefinementModule:
+    FinalRefinementOptions,
+    FinalRefinementLibrary,
+    FinalRefinementLibraryEntry,
+    FinalRefinementReport,
+    FinalRefinementResult,
+    finalize_search,
+    add_final_refinement_term!,
+    add_final_refinement_string!
 using .CoreModule.UtilsModule: get_birth_order
 using .PopulationModule: Population, best_sub_pop, best_of_sample
 using .HallOfFameModule:
@@ -693,6 +715,9 @@ function equation_search(
     extra::NamedTuple=NamedTuple(),
     guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing}=nothing,
     rnn_generator=nothing,
+    final_refinement=nothing,
+    final_refinement_library=nothing,
+    validation_dataset=nothing,
     v_dim_out::Val{DIM_OUT}=Val(nothing),
     # Deprecated:
     multithreaded=nothing,
@@ -780,6 +805,9 @@ function equation_search(
         progress=progress,
         guesses=guesses,
         rnn_generator=rnn_generator,
+        final_refinement=final_refinement,
+        final_refinement_library=final_refinement_library,
+        validation_dataset=validation_dataset,
         v_dim_out=Val(DIM_OUT),
     )
 end
@@ -800,6 +828,9 @@ function equation_search(
     saved_state=nothing,
     guesses::Union{AbstractVector,AbstractVector{<:AbstractVector},Nothing}=nothing,
     rnn_generator=nothing,
+    final_refinement=nothing,
+    final_refinement_library=nothing,
+    validation_dataset=nothing,
     runtime_options::Union{AbstractRuntimeOptions,Nothing}=nothing,
     runtime_options_kws...,
 ) where {T<:DATA_TYPE,L<:LOSS_TYPE,D<:Dataset{T,L}}
@@ -816,7 +847,15 @@ function equation_search(
 
     # Underscores here mean that we have mutated the variable
     return _equation_search(
-        datasets, _runtime_options, options, saved_state, guesses, rnn_generator
+        datasets,
+        _runtime_options,
+        options,
+        saved_state,
+        guesses,
+        rnn_generator,
+        final_refinement,
+        final_refinement_library,
+        validation_dataset,
     )
 end
 
@@ -827,6 +866,9 @@ end
     saved_state,
     guesses,
     rnn_generator,
+    final_refinement,
+    final_refinement_library,
+    validation_dataset,
 ) where {D<:Dataset}
     _validate_options(datasets, ropt, options)
     state = _create_workers(datasets, ropt, options)
@@ -835,9 +877,17 @@ end
     )
     _warmup_search!(state, datasets, ropt, options)
     _main_search_loop!(state, datasets, ropt, options)
+    refinement_results = _run_final_refinement!(
+        state,
+        datasets,
+        options,
+        final_refinement,
+        final_refinement_library,
+        validation_dataset,
+    )
     _tear_down!(state, datasets, ropt, options)
     _info_dump(state, datasets, ropt, options)
-    return _format_output(state, datasets, ropt, options)
+    return _format_output(state, datasets, ropt, options, refinement_results)
 end
 
 function _validate_options(
@@ -1578,6 +1628,70 @@ function _main_search_loop!(
     end
     return nothing
 end
+
+function _coerce_final_refinement_options(value)
+    value === nothing && return nothing
+    value === true && return FinalRefinementOptions()
+    value isa FinalRefinementOptions ||
+        throw(ArgumentError("final_refinement must be nothing, true, or FinalRefinementOptions."))
+    return value
+end
+
+function _validation_dataset_for(validation_dataset, index, nout)
+    validation_dataset === nothing && return nothing
+    if validation_dataset isa Dataset
+        nout == 1 || throw(ArgumentError("multi-output validation_dataset must be a vector of Dataset objects."))
+        return validation_dataset
+    elseif validation_dataset isa AbstractVector
+        length(validation_dataset) == nout ||
+            throw(DimensionMismatch("validation_dataset must have one Dataset per output."))
+        validation_dataset[index] isa Dataset || throw(ArgumentError("validation_dataset entries must be Dataset objects."))
+        return validation_dataset[index]
+    end
+    throw(ArgumentError("validation_dataset must be nothing, a Dataset, or a vector of Dataset objects."))
+end
+
+function _library_for_output(library, index, nout)
+    library === nothing && return FinalRefinementLibrary()
+    if library isa FinalRefinementLibrary
+        return library
+    elseif library isa AbstractVector
+        length(library) == nout || throw(DimensionMismatch("final_refinement_library must have one library per output."))
+        library[index] isa FinalRefinementLibrary || throw(ArgumentError("final_refinement_library entries must be FinalRefinementLibrary objects."))
+        return library[index]
+    end
+    throw(ArgumentError("final_refinement_library must be nothing, a FinalRefinementLibrary, or a vector of libraries."))
+end
+
+@noinline function _run_final_refinement!(
+    state::AbstractSearchState,
+    datasets,
+    options::AbstractOptions,
+    final_refinement,
+    final_refinement_library,
+    validation_dataset,
+)
+    refinement = _coerce_final_refinement_options(final_refinement)
+    refinement === nothing && return nothing
+    nout = length(datasets)
+    results = Vector{Any}(undef, nout)
+    for j in 1:nout
+        result = finalize_search(
+            state.halls_of_fame[j],
+            datasets[j];
+            options,
+            populations=state.last_pops[j],
+            refinement,
+            library=_library_for_output(final_refinement_library, j, nout),
+            validation_dataset=_validation_dataset_for(validation_dataset, j, nout),
+            rng=_search_rng(options, j, 0, 0, 19),
+        )
+        state.halls_of_fame[j] = result.hall_of_fame
+        results[j] = result
+    end
+    return results
+end
+
 function _tear_down!(
     state::AbstractSearchState,
     datasets,
@@ -1606,11 +1720,12 @@ function _tear_down!(
     end
     return nothing
 end
-function _format_output(
+@noinline function _format_output(
     state::AbstractSearchState,
     datasets,
     ropt::AbstractRuntimeOptions,
     options::AbstractOptions,
+    refinement_results=nothing,
 )
     nout = length(datasets)
     out_hof = if ropt.dim_out == 1
@@ -1618,10 +1733,26 @@ function _format_output(
     else
         map(Fix{2}(embed_metadata, options), state.halls_of_fame, datasets)
     end
+    if refinement_results === nothing
+        if ropt.return_state
+            return (map(Fix{2}(embed_metadata, options), state.last_pops, datasets), out_hof)
+        else
+            return out_hof
+        end
+    end
+    formatted_results = map(refinement_results, datasets) do result, dataset
+        return FinalRefinementResult(
+            embed_metadata(result.hall_of_fame, options, dataset),
+            embed_metadata(result.original_hall_of_fame, options, dataset),
+            result.library,
+            result.report,
+        )
+    end
+    out_result = ropt.dim_out == 1 ? only(formatted_results) : formatted_results
     if ropt.return_state
-        return (map(Fix{2}(embed_metadata, options), state.last_pops, datasets), out_hof)
+        return (map(Fix{2}(embed_metadata, options), state.last_pops, datasets), out_result)
     else
-        return out_hof
+        return out_result
     end
 end
 
