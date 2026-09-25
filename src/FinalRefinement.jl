@@ -1,7 +1,7 @@
 """Bounded, opt-in semantic subtree refinement performed after a search."""
 module FinalRefinementModule
 
-using Random: AbstractRNG, default_rng, shuffle!
+using Random: AbstractRNG, default_rng, rand
 using DynamicExpressions:
     AbstractExpression,
     AbstractExpressionNode,
@@ -21,6 +21,7 @@ using ..PopulationModule: Population
 using ..HallOfFameModule: HallOfFame, calculate_pareto_frontier, update_hall_of_fame!
 using ..ComplexityModule: compute_complexity
 using ..CheckConstraintsModule: check_constraints
+using ..DimensionalAnalysisModule: infer_dimension_static
 using ..LossFunctionsModule: eval_cost
 using ..ConstantOptimizationModule: bounded_optimizer_options, optimize_constants
 using ..MutationFunctionsModule: get_contents_for_mutation, with_contents_for_mutation
@@ -101,7 +102,36 @@ mutable struct FinalRefinementLibraryEntry
     accepted::Int
     gain::Float64
     rank::Int
+    input_features::Vector{Int}
+    dimension_signature::Any
+    dataset_signature::String
 end
+
+"""Backward-compatible constructor for manually created library entries."""
+FinalRefinementLibraryEntry(
+    expression,
+    source::Symbol,
+    complexity::Integer,
+    signature,
+    weight::Real,
+    attempts::Integer,
+    accepted::Integer,
+    gain::Real,
+    rank::Integer,
+) = FinalRefinementLibraryEntry(
+    expression,
+    source,
+    Int(complexity),
+    signature,
+    Float64(weight),
+    Int(attempts),
+    Int(accepted),
+    Float64(gain),
+    Int(rank),
+    Int[],
+    nothing,
+    "",
+)
 
 """Static and run-local dynamic terms used by final refinement.
 
@@ -199,6 +229,9 @@ _copy_entry(entry::FinalRefinementLibraryEntry) = FinalRefinementLibraryEntry(
     entry.accepted,
     entry.gain,
     entry.rank,
+    copy(entry.input_features),
+    entry.dimension_signature,
+    entry.dataset_signature,
 )
 
 function _copy_library(library::FinalRefinementLibrary)
@@ -212,7 +245,8 @@ function _copy_library(library::FinalRefinementLibrary)
 end
 
 function add_final_refinement_term!(library::FinalRefinementLibrary, term; source::Symbol=:user)
-    source in (:user, :static_user) || throw(ArgumentError("user terms must use source=:user."))
+    source in (:user, :static_user) ||
+        throw(ArgumentError("user terms must use source=:user or :static_user."))
     push!(library.pending_terms, term)
     return library
 end
@@ -225,6 +259,64 @@ _term_key(tree, options) = try
     string_tree(tree, options; pretty=false)
 catch
     sprint(show, tree)
+end
+
+function _safe_hash(value)
+    return try
+        string(hash(value))
+    catch
+        sprint(show, value)
+    end
+end
+
+"""Identify the data and grammar context used by a semantic signature."""
+function _dataset_signature(dataset::Dataset, options::AbstractOptions, probe_size::Int)
+    n = min(probe_size, dataset.n)
+    X_probe = n == 0 ? nothing : dataset.X[:, 1:n]
+    y_probe = n == 0 || isnothing(dataset.y) ? nothing : dataset.y[1:n]
+    return join(
+        (
+            size(dataset.X, 1),
+            dataset.n,
+            probe_size,
+            join(dataset.variable_names, "\u001f"),
+            repr(dataset.X_dimensions),
+            repr(dataset.y_dimensions),
+            _safe_hash(X_probe),
+            _safe_hash(y_probe),
+            _safe_hash(options.operators),
+        ),
+        "|",
+    )
+end
+
+function _feature_indices(tree::AbstractExpressionNode)
+    features = Int[]
+    for (_, node) in _walk_nodes(tree; include_root=true)
+        node.degree == 0 || continue
+        is_constant = try
+            Bool(getproperty(node, :constant))
+        catch
+            false
+        end
+        is_constant && continue
+        feature = try
+            Int(getproperty(node, :feature))
+        catch
+            0
+        end
+        feature > 0 && push!(features, feature)
+    end
+    return sort!(unique(features))
+end
+
+function _dimension_metadata(tree, dataset, options)
+    result = try
+        infer_dimension_static(tree, dataset, options; scope=:internal)
+    catch
+        return false, nothing
+    end
+    return result.valid, result.output_dimension
 end
 
 function _node_term(term)
@@ -252,29 +344,9 @@ function _parse_term(term, dataset::Dataset{T,L}, options::AbstractOptions) wher
     return nothing
 end
 
-function _signature(tree, dataset, options, probe_size)
-    key = _term_key(tree, options)
-    return key, get!(dataset === nothing ? Dict{String,Any}() : Dict{String,Any}(), key) do
-        n = min(probe_size, dataset.n)
-        n > 0 || return nothing
-        X = dataset.X[:, 1:n]
-        out, complete = try
-            eval_tree_array(tree, X, options)
-        catch
-            nothing, false
-        end
-        complete && out !== nothing || return nothing
-        values = try
-            [isfinite(v) ? round(Float64(v), digits=8) : Float64(Inf) for v in out]
-        catch
-            return nothing
-        end
-        return hash(values)
-    end
-end
-
-function _signature_cached!(library, tree, dataset, options, probe_size)
-    key = _term_key(tree, options)
+function _signature_cached!(library, tree, dataset, options, probe_size, dataset_signature)
+    term_key = _term_key(tree, options)
+    key = string(dataset_signature, "|", term_key)
     if haskey(library.semantic_signatures, key)
         return library.semantic_signatures[key]
     end
@@ -301,6 +373,34 @@ function _signature_cached!(library, tree, dataset, options, probe_size)
     return signature
 end
 
+function _entry_metadata(entry, dataset, options, probe_size)
+    tree = entry.expression
+    tree isa AbstractExpressionNode || return false
+    features = _feature_indices(tree)
+    all(feature <= size(dataset.X, 1) for feature in features) || return false
+    dimension_valid, dimension_signature = _dimension_metadata(tree, dataset, options)
+    dimension_valid || return false
+    return features, dimension_signature, _dataset_signature(dataset, options, probe_size)
+end
+
+function _refresh_entry_metadata!(library, entry, dataset, options, probe_size)
+    metadata = _entry_metadata(entry, dataset, options, probe_size)
+    metadata === false && return false
+    features, dimension_signature, dataset_signature = metadata
+    entry.input_features = features
+    entry.dimension_signature = dimension_signature
+    entry.dataset_signature = dataset_signature
+    entry.signature = _signature_cached!(
+        library,
+        entry.expression,
+        dataset,
+        options,
+        probe_size,
+        dataset_signature,
+    )
+    return entry.signature !== nothing || dataset.n == 0
+end
+
 function _add_entry!(
     library,
     tree,
@@ -311,6 +411,7 @@ function _add_entry!(
     rank=0,
     weight=1.0,
     probe_size=128,
+    dataset_signature=_dataset_signature(dataset, options, probe_size),
 )
     complexity = try
         compute_complexity(tree, options)
@@ -319,18 +420,38 @@ function _add_entry!(
     end
     complexity > 0 || return false
     complexity <= options.maxsize || return false
-    expression = try
-        tree
-    catch
-        nothing
-    end
-    signature = _signature_cached!(library, expression, dataset, options, probe_size)
+    expression = _node_term(tree)
+    expression === nothing && return false
+    features = _feature_indices(expression)
+    all(feature <= size(dataset.X, 1) for feature in features) || return false
+    dimension_valid, dimension_signature = _dimension_metadata(expression, dataset, options)
+    dimension_valid || return false
+    signature = _signature_cached!(
+        library,
+        expression,
+        dataset,
+        options,
+        probe_size,
+        dataset_signature,
+    )
+    signature === nothing && dataset.n > 0 && return false
     key = _term_key(expression, options)
     all_entries = (library.static_terms, library.dynamic_terms)
     any(entry -> _term_key(entry.expression, options) == key, Iterators.flatten(all_entries)) &&
         return false
     entry = FinalRefinementLibraryEntry(
-        copy_node(expression), source, complexity, signature, Float64(weight), 0, 0, 0.0, rank
+        copy_node(expression),
+        source,
+        complexity,
+        signature,
+        Float64(weight),
+        0,
+        0,
+        0.0,
+        rank,
+        features,
+        dimension_signature,
+        dataset_signature,
     )
     if source in (:dynamic_hof, :dynamic_population)
         push!(library.dynamic_terms, entry)
@@ -365,9 +486,30 @@ function _static_library!(library, base_tree, dataset, options, refinement, repo
     raw_tree = base_tree isa AbstractExpression ? get_tree(base_tree) : base_tree
     node_type = typeof(raw_tree)
     T = eltype(dataset.X)
-    _add_entry!(library, _constant_leaf(node_type, T), :static_builtin, dataset, options, report; weight=1.0, probe_size=refinement.probe_size)
+    dataset_signature = _dataset_signature(dataset, options, refinement.probe_size)
+    _add_entry!(
+        library,
+        _constant_leaf(node_type, T),
+        :static_builtin,
+        dataset,
+        options,
+        report;
+        weight=1.0,
+        probe_size=refinement.probe_size,
+        dataset_signature,
+    )
     for feature in 1:size(dataset.X, 1)
-        _add_entry!(library, _feature_leaf(node_type, T, feature), :static_builtin, dataset, options, report; weight=1.0, probe_size=refinement.probe_size)
+        _add_entry!(
+            library,
+            _feature_leaf(node_type, T, feature),
+            :static_builtin,
+            dataset,
+            options,
+            report;
+            weight=1.0,
+            probe_size=refinement.probe_size,
+            dataset_signature,
+        )
     end
     for term in library.pending_terms
         parsed = try
@@ -383,9 +525,26 @@ function _static_library!(library, base_tree, dataset, options, refinement, repo
         end
         complexity = try compute_complexity(parsed, options) catch; 0 end
         valid = complexity > 0 && complexity <= options.maxsize &&
-            check_constraints(parsed, dataset, options, options.maxsize, complexity)
+            check_constraints(
+                parsed,
+                dataset,
+                options,
+                options.maxsize,
+                complexity;
+                scope=:internal,
+            )
         if valid
-            _add_entry!(library, parsed, :static_user, dataset, options, report; weight=1.0, probe_size=refinement.probe_size)
+            _add_entry!(
+                library,
+                parsed,
+                :static_user,
+                dataset,
+                options,
+                report;
+                weight=1.0,
+                probe_size=refinement.probe_size,
+                dataset_signature,
+            )
         else
             push!(report.invalid_terms, (term=term, reason=:constraint_or_complexity))
         end
@@ -416,6 +575,10 @@ end
 
 function _add_dynamic_terms!(library, hof, populations, dataset, options, refinement, report)
     if length(library.dynamic_terms) > refinement.max_dynamic_terms
+        sort!(
+            library.dynamic_terms,
+            by=entry -> (-entry.weight, entry.rank, _term_key(entry.expression, options)),
+        )
         resize!(library.dynamic_terms, refinement.max_dynamic_terms)
     end
     sources = Tuple{Any,Symbol}[]
@@ -426,7 +589,11 @@ function _add_dynamic_terms!(library, hof, populations, dataset, options, refine
     for member in Iterators.take(members, refinement.elite_count)
         push!(sources, (member, :dynamic_population))
     end
-    seen = Set{String}()
+    seen = Set{String}(
+        _term_key(entry.expression, options)
+        for entry in Iterators.flatten((library.static_terms, library.dynamic_terms))
+    )
+    dataset_signature = _dataset_signature(dataset, options, refinement.probe_size)
     for (member, source) in sources
         nodes = try
             _walk_nodes(get_tree(member.tree); include_root=false)
@@ -438,7 +605,18 @@ function _add_dynamic_terms!(library, hof, populations, dataset, options, refine
             key in seen && continue
             push!(seen, key)
             length(library.dynamic_terms) >= refinement.max_dynamic_terms && return library
-            _add_entry!(library, node, source, dataset, options, report; rank=length(seen), weight=source == :dynamic_hof ? 1.5 : 1.0, probe_size=refinement.probe_size)
+            _add_entry!(
+                library,
+                node,
+                source,
+                dataset,
+                options,
+                report;
+                rank=length(seen),
+                weight=source == :dynamic_hof ? 1.5 : 1.0,
+                probe_size=refinement.probe_size,
+                dataset_signature,
+            )
         end
     end
     return library
@@ -455,17 +633,45 @@ function _replace_path(tree, path, replacement)
     return root
 end
 
-function _selection_cost(member, validation_dataset, options, report)
+function _validate_validation_dataset(dataset::Dataset, validation_dataset)
+    validation_dataset === nothing && return nothing
+    validation_dataset isa Dataset ||
+        throw(ArgumentError("validation_dataset must be a Dataset."))
+    size(validation_dataset.X, 1) == size(dataset.X, 1) ||
+        throw(DimensionMismatch("validation_dataset must have the same number of features."))
+    if !isempty(dataset.variable_names) && !isempty(validation_dataset.variable_names)
+        dataset.variable_names == validation_dataset.variable_names ||
+            throw(DimensionMismatch("validation_dataset variable_names must match the search dataset."))
+    end
+    if xor(isnothing(dataset.X_dimensions), isnothing(validation_dataset.X_dimensions)) ||
+       xor(isnothing(dataset.y_dimensions), isnothing(validation_dataset.y_dimensions))
+        throw(DimensionMismatch("validation_dataset dimension metadata must match the search dataset."))
+    end
+    if !isnothing(dataset.X_dimensions) &&
+       repr(dataset.X_dimensions) != repr(validation_dataset.X_dimensions)
+        throw(DimensionMismatch("validation_dataset X_dimensions must match the search dataset."))
+    end
+    if !isnothing(dataset.y_dimensions) &&
+       repr(dataset.y_dimensions) != repr(validation_dataset.y_dimensions)
+        throw(DimensionMismatch("validation_dataset y_dimensions must match the search dataset."))
+    end
+    return nothing
+end
+
+function _selection_cost(member, validation_dataset, options, report, cache)
     validation_dataset === nothing && return Float64(member.cost)
+    key = _member_key(member, options)
+    haskey(cache, key) && return cache[key]
     cost = try
         first(eval_cost(validation_dataset, member.tree, options; complexity=compute_complexity(member, options)))
     catch
         Inf
     end
     report.validation_evaluations += 1
-    isfinite(cost) || return Inf
-    push!(report.validation_costs, Float64(cost))
-    return Float64(cost)
+    normalized_cost = Float64(cost)
+    isfinite(normalized_cost) && push!(report.validation_costs, normalized_cost)
+    cache[key] = normalized_cost
+    return cache[key]
 end
 
 function _better_selection(candidate, parent, candidate_score, parent_score, options)
@@ -475,15 +681,78 @@ function _better_selection(candidate, parent, candidate_score, parent_score, opt
     candidate_score == parent_score && compute_complexity(candidate, options) < compute_complexity(parent, options)
 end
 
-function _proposal_entries(library, rng, refinement)
-    entries = vcat(library.static_terms, library.dynamic_terms)
-    entries = [entry for entry in entries if entry.expression !== nothing]
-    isempty(entries) && return entries
-    if !isnothing(rng) && !refinement.allow_root_replacement
-        shuffle!(rng, entries)
+function _proposal_score(entry)
+    source_bias = entry.source === :dynamic_hof ? 1.5 :
+        entry.source === :dynamic_population ? 1.0 : 1.1
+    success_rate = entry.attempts == 0 ? 0.0 : entry.accepted / entry.attempts
+    mean_gain = entry.attempts == 0 ? 0.0 : entry.gain / entry.attempts
+    rank_bias = entry.rank <= 0 ? 1.0 : inv(1 + entry.rank)
+    return max(
+        eps(Float64),
+        entry.weight * source_bias * (1 + success_rate + min(max(mean_gain, 0.0), 10.0)) * rank_bias,
+    )
+end
+
+function _weighted_order(entries, rng, temperature)
+    remaining = copy(entries)
+    ordered = FinalRefinementLibraryEntry[]
+    exponent = inv(temperature)
+    while !isempty(remaining)
+        weights = [max(eps(Float64), _proposal_score(entry)^exponent) for entry in remaining]
+        total = sum(weights)
+        index = if !isfinite(total) || total <= 0
+            1
+        else
+            threshold = rand(rng) * total
+            cumulative = 0.0
+            selected = length(remaining)
+            for i in eachindex(remaining)
+                cumulative += weights[i]
+                if threshold <= cumulative
+                    selected = i
+                    break
+                end
+            end
+            selected
+        end
+        push!(ordered, remaining[index])
+        deleteat!(remaining, index)
     end
-    sort!(entries, by=e -> (e.source in (:static_builtin, :static_user) ? 0 : 1, -e.weight, e.rank, sprint(show, e.expression)))
-    return entries
+    return ordered
+end
+
+function _proposal_entries(library, rng, refinement, dataset, options)
+    entries = vcat(library.static_terms, library.dynamic_terms)
+    entries = [
+        entry for entry in entries if
+        entry.expression !== nothing &&
+        _refresh_entry_metadata!(library, entry, dataset, options, refinement.probe_size)
+    ]
+    isempty(entries) && return entries
+    if options.deterministic || isnothing(rng)
+        sort!(
+            entries,
+            by=entry -> (-_proposal_score(entry), entry.rank, _term_key(entry.expression, options)),
+        )
+        return entries
+    end
+    return _weighted_order(entries, rng, refinement.proposal_temperature)
+end
+
+function _member_key(member, options)
+    return try
+        _term_key(get_tree(member.tree), options)
+    catch
+        sprint(show, member.tree)
+    end
+end
+
+function _push_unique_member!(members, seen, member, options)
+    key = _member_key(member, options)
+    key in seen && return false
+    push!(seen, key)
+    push!(members, member)
+    return true
 end
 
 @noinline function _refine_member(
@@ -499,7 +768,10 @@ end
     beam = Any[copy(member)]
     for round in 1:refinement.max_rounds
         report.rounds_completed = max(report.rounds_completed, round)
-        next_beam = Any[copy(member)]
+        next_beam = Any[]
+        next_seen = Set{String}()
+        _push_unique_member!(next_beam, next_seen, copy(member), options)
+        score_cache = Dict{String,Float64}()
         for parent in beam
             report.evaluations >= refinement.max_evals && (report.stopped_reason = :max_evals; return beam)
             contents, context = try
@@ -513,7 +785,9 @@ end
                 Tuple{Vector{Int},Any}[]
             end
             length(paths) > refinement.max_subtrees_per_member && (paths = paths[1:refinement.max_subtrees_per_member])
-            proposals = _proposal_entries(library, rng, refinement)
+            proposals = _proposal_entries(library, rng, refinement, dataset, options)
+            isempty(proposals) && continue
+            parent_score = _selection_cost(parent, validation_dataset, options, report, score_cache)
             for (path, _) in paths
                 replacements = 0
                 for entry in proposals
@@ -534,6 +808,7 @@ end
                     catch
                         continue
                     end
+                    _member_key(parent, options) == _term_key(get_tree(expr), options) && continue
                     complexity = try compute_complexity(expr, options) catch; typemax(Int) end
                     complexity <= options.maxsize || continue
                     check_constraints(expr, dataset, options, options.maxsize, complexity) || continue
@@ -544,35 +819,53 @@ end
                     end
                     report.evaluations += 1
                     if options.should_optimize_constants && has_constants(get_tree(candidate.tree))
-                        remaining = max(1, refinement.max_evals - report.evaluations)
-                        bounded = bounded_optimizer_options(options; iterations=4, f_calls_limit=min(64, remaining))
-                        try
-                            candidate, optimizer_evals = optimize_constants(
-                                dataset,
-                                candidate,
+                        remaining = refinement.max_evals - report.evaluations
+                        if remaining > 0
+                            bounded = bounded_optimizer_options(
                                 options;
-                                rng,
-                                optimizer_options_override=bounded,
-                                optimizer_nrestarts_override=0,
+                                iterations=4,
+                                f_calls_limit=min(64, remaining),
                             )
-                            report.evaluations += min(remaining, max(0, Int(ceil(optimizer_evals))))
-                        catch
-                            # The unevaluated candidate remains a valid fallback.
+                            try
+                                candidate, optimizer_evals = optimize_constants(
+                                    dataset,
+                                    candidate,
+                                    options;
+                                    rng,
+                                    optimizer_options_override=bounded,
+                                    optimizer_nrestarts_override=0,
+                                )
+                                used_evals = max(0, Int(ceil(optimizer_evals)))
+                                report.evaluations = min(
+                                    refinement.max_evals,
+                                    report.evaluations + used_evals,
+                                )
+                            catch
+                                # The unevaluated candidate remains a valid fallback.
+                            end
                         end
                     end
-                    parent_score = _selection_cost(parent, validation_dataset, options, report)
-                    candidate_score = _selection_cost(candidate, validation_dataset, options, report)
+                    candidate_score = _selection_cost(
+                        candidate,
+                        validation_dataset,
+                        options,
+                        report,
+                        score_cache,
+                    )
                     entry.attempts += 1
                     report.attempted_replacements += 1
                     gain = parent_score - candidate_score
-                    entry.gain += isfinite(gain) ? max(0.0, gain) : 0.0
-                    library.replacement_gains[_term_key(entry.expression, options)] = get(library.replacement_gains, _term_key(entry.expression, options), 0.0) + (isfinite(gain) ? max(0.0, gain) : 0.0)
+                    positive_gain = isfinite(gain) ? max(0.0, gain) : 0.0
+                    entry.gain += positive_gain
+                    entry_key = _term_key(entry.expression, options)
+                    library.replacement_gains[entry_key] =
+                        get(library.replacement_gains, entry_key, 0.0) + positive_gain
                     if _better_selection(candidate, parent, candidate_score, parent_score, options)
                         entry.accepted += 1
                         entry.weight = max(entry.weight, 1.0 + entry.gain / max(entry.attempts, 1))
                         push!(report.replacement_gains, gain)
                         report.accepted_replacements += 1
-                        push!(next_beam, candidate)
+                        _push_unique_member!(next_beam, next_seen, candidate, options)
                     else
                         report.rejected_replacements += 1
                     end
@@ -580,8 +873,16 @@ end
                 end
             end
         end
-        sort!(next_beam, by=m -> (isfinite(_selection_cost(m, validation_dataset, options, report)) ? _selection_cost(m, validation_dataset, options, report) : Inf, compute_complexity(m, options)))
-        beam = next_beam[1:min(refinement.beam_width, length(next_beam))]
+        scored = [
+            (
+                member=m,
+                score=_selection_cost(m, validation_dataset, options, report, score_cache),
+                complexity=compute_complexity(m, options),
+                key=_member_key(m, options),
+            ) for m in next_beam
+        ]
+        sort!(scored, by=item -> (isfinite(item.score) ? item.score : Inf, item.complexity, item.key))
+        beam = [item.member for item in scored[1:min(refinement.beam_width, length(scored))]]
         report.evaluations >= refinement.max_evals && (report.stopped_reason = :max_evals; return beam)
     end
     report.stopped_reason == :completed && (report.stopped_reason = :max_rounds)
@@ -601,6 +902,7 @@ end
     original = copy(hall_of_fame)
     working_library = _copy_library(library)
     report = FinalRefinementReport()
+    _validate_validation_dataset(dataset, validation_dataset)
     frontier = calculate_pareto_frontier(original)
     base = isempty(frontier) ? nothing : first(frontier)
     base === nothing && begin
@@ -620,7 +922,6 @@ end
             update_hall_of_fame!(refined, candidate, dataset, options)
         end
     end
-    report.stopped_reason == :completed || nothing
     return FinalRefinementResult(refined, original, working_library, report)
 end
 
