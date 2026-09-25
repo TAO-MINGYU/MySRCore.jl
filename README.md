@@ -36,7 +36,7 @@ Install the pinned release directly from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.1.3")
+Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.2.0")
 using MySRCore
 ```
 

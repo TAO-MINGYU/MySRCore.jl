@@ -1,5 +1,10 @@
 # Changelog
 
+## MySRCore 1.2.0 (2026-09-25)
+
+- Synchronized the backend release metadata for the pre-final-refinement
+  baseline.
+
 ## MySRCore 1.1.3 (2026-09-11)
 
 - Published the release paired with MySR 1.1.3 after synchronized AFE and

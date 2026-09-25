@@ -1,5 +1,10 @@
 # Fork changes
 
+## 2026-09-25 - MySRCore 1.2.0 baseline
+
+- Tagged the canonical backend baseline before the opt-in final semantic
+  refinement integration.
+
 ## 2026-09-11 - MySRCore 1.1.3
 
 - Synced backend pin for MySR frontend 1.1.3 and released this Julia tag to

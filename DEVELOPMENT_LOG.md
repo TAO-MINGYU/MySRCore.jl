@@ -716,6 +716,13 @@
   `@nospecialize annotation only supported on the first 32 arguments` 警告；`git diff --check`
   通过。
 
+## 2026-09-25 - MySRCore 1.2.0 baseline release
+
+- **基线**：canonical `main@49cce63` 的旧搜索代码，不包含 final semantic refinement。
+- **发布元数据**：`Project.toml`、README 安装示例、`CHANGELOG.md` 和 `FORK_CHANGES.md`
+  同步到 `1.2.0`。
+- **后续**：该提交将创建 annotated tag `v1.2.0`，之后再合入 refinement worktree。
+
 ## 2026-09-23 — MySR bridge contract documentation alignment
 
 - 范围：paired worktree `contract-quality-20260923`，复核 MySRCore v1.1.3 public Options 与 Python bridge 的共同契约。
