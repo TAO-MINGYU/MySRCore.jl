@@ -790,3 +790,9 @@
 - Added `mysrcore-mark.svg`, `mysrcore-lockup.svg`, three reusable English icons (`mysrcore-icon-tree.svg`, `mysrcore-icon-pareto.svg`, `mysrcore-icon-dimensions.svg`), refreshed social/result previews, and a color-coded architecture diagram.
 - Added the icon row to the README and documented the palette and asset roles in `assets/README.md`.
 - Removed the unused duplicate `mysr-mark.svg` asset from this repository so the public asset directory no longer presents the frontend mark as the core logo; no runtime or API contract changed.
+
+## 2026-09-27 — Adopt MySRCore public product name
+
+- Replaced public `MySRCore.jl` branding with `MySRCore` in README, citation metadata, notices, vendor documentation, architecture copy, and all current identity SVG/PNG assets.
+- Removed language-specific wording from the product lockup and social preview while retaining necessary Julia package/install and upstream attribution references.
+- The GitHub repository is now `TAO-MINGYU/MySRCore`; the package name and UUID remain unchanged.
