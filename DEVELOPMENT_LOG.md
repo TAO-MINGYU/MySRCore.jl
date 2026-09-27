@@ -14,6 +14,14 @@
 - 验证：PNG 尺寸/模式、SVG XML 和视觉检查通过；素材不包含 benchmark 结果或运行时数据。
 - 遗留风险：GitHub social-preview 需要在网页设置中手动上传；REST API 没有可用 endpoint。
 
+## 2026-09-27 - Add an illustrative README result preview
+
+- 变更类型：README 视觉证据和静态素材。
+- 影响范围：`README.md`、`assets/result-preview.svg`、`assets/result-preview.png`、`assets/README.md`。
+- Decision：展示 HOF/Pareto、string tree、loss 和 complexity 的合成示例，明确标注 synthetic/not benchmark evidence。
+- 验证：SVG XML、PNG 尺寸/模式、README 相对路径和本地视觉检查通过；未引入运行时数据。
+- 遗留风险：示例的视觉效果需在 GitHub 浅色/深色和窄屏渲染中复核。
+
 ## 2026-09-27 - Refresh citation metadata for the 1.3.0 release
 
 - 变更类型：发布元数据与 README 导航补充。

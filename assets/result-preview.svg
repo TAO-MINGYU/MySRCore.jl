@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="380" viewBox="0 0 960 380" role="img" aria-labelledby="title desc">
+  <title id="title">Illustrative MySRCore Hall of Fame and Pareto frontier</title>
+  <desc id="desc">A synthetic Julia backend result view with expression trees, loss, complexity, and Pareto candidates.</desc>
+  <rect width="960" height="380" rx="24" fill="#F8FAFC"/>
+  <rect x="20" y="20" width="920" height="340" rx="20" fill="#FFFFFF" stroke="#D6E0F4" stroke-width="2"/>
+  <text x="52" y="64" fill="#12161C" font-family="Lato, Arial, sans-serif" font-size="23" font-weight="700">Illustrative HOF / Pareto view</text>
+  <text x="52" y="91" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="1.2">SYNTHETIC EXAMPLE · NOT BENCHMARK EVIDENCE</text>
+  <rect x="52" y="120" width="585" height="42" rx="8" fill="#EAF0FF"/>
+  <text x="74" y="147" fill="#1947D1" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="700">COMPLEXITY</text>
+  <text x="208" y="147" fill="#1947D1" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="700">LOSS</text>
+  <text x="310" y="147" fill="#1947D1" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="700">STRING TREE</text>
+  <rect x="52" y="162" width="585" height="52" fill="#FFFFFF"/>
+  <rect x="52" y="214" width="585" height="52" fill="#F8FAFC"/>
+  <rect x="52" y="266" width="585" height="52" fill="#FFFFFF"/>
+  <path d="M52 162H637M52 214H637M52 266H637M52 318H637" stroke="#E3E8F2" stroke-width="1"/>
+  <text x="86" y="195" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="16">3</text>
+  <text x="210" y="195" fill="#687384" font-family="DejaVu Sans Mono, monospace" font-size="16">0.82</text>
+  <text x="310" y="195" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="16">mul(2.4, cos(x2))</text>
+  <text x="86" y="247" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="16">5</text>
+  <text x="210" y="247" fill="#687384" font-family="DejaVu Sans Mono, monospace" font-size="16">0.31</text>
+  <text x="310" y="247" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="16">add(square(x0), ...)</text>
+  <text x="86" y="299" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="16">7</text>
+  <text x="210" y="299" fill="#687384" font-family="DejaVu Sans Mono, monospace" font-size="16">0.04</text>
+  <text x="310" y="299" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="16">add(..., constant(-0.5))</text>
+  <text x="696" y="145" fill="#1947D1" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1.2">BACKEND CONTRACTS</text>
+  <path d="M704 282C730 257 746 266 762 240C779 213 792 224 807 196C824 165 842 179 861 151" fill="none" stroke="#1947D1" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="704" cy="282" r="6" fill="#12161C"/><circle cx="762" cy="240" r="6" fill="#12161C"/><circle cx="807" cy="196" r="6" fill="#12161C"/><circle cx="861" cy="151" r="6" fill="#12161C"/>
+  <path d="M704 298H878M704 298V160" stroke="#C7D5FF" stroke-width="2"/>
+  <text x="704" y="326" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="13">complexity →</text>
+  <text x="690" y="176" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="13" transform="rotate(-90 690 176)">loss →</text>
+</svg>

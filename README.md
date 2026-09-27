@@ -9,6 +9,7 @@
   </p>
   <p>
     <a href="#quickstart">Quickstart</a>&nbsp;&middot;&nbsp;
+    <a href="#result-preview">Result preview</a>&nbsp;&middot;&nbsp;
     <a href="#capabilities">Capabilities</a>&nbsp;&middot;&nbsp;
     <a href="#architecture">Architecture</a>&nbsp;&middot;&nbsp;
     <a href="#development">Development</a>
@@ -90,6 +91,16 @@ Each `PopMember` stores an expression tree and its loss. The Pareto frontier pro
 tree = dominating[end].tree
 prediction, did_succeed = eval_tree_array(tree, X, options)
 ```
+
+## Result preview
+
+<div align="center">
+  <img src="assets/result-preview.svg" alt="Illustrative MySRCore Hall of Fame and Pareto view with complexity, loss, and string trees" width="960">
+</div>
+
+The figure shows the shape of a low-level result: expression representations
+remain inspectable while loss and complexity expose the Pareto tradeoff. The
+values are synthetic and are not benchmark evidence.
 
 ## Capabilities
 
