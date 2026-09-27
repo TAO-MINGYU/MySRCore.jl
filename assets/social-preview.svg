@@ -1,26 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
   <title id="title">MySRCore.jl social preview</title>
-  <desc id="desc">Search the space of equations. Expression trees, dimensional contracts, and Pareto frontiers.</desc>
-  <rect width="1280" height="640" fill="#F8FAFC"/>
-  <rect width="14" height="640" fill="#1947D1"/>
-  <rect x="840" y="42" width="372" height="556" rx="28" fill="#EAF0FF"/>
-  <path d="M878 154H1170M878 468H1170" stroke="#C7D5FF" stroke-width="2"/>
-  <g transform="translate(78 150) scale(.6583)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M45 148C35 112 54 75 93 56C133 36 180 44 199 76C217 107 199 149 164 176C130 202 78 199 53 172" stroke="#12161C" stroke-width="8"/>
-    <path d="M51 145C75 119 92 111 112 120C130 128 142 143 159 128C174 115 186 97 199 77" stroke="#1947D1" stroke-width="9"/>
-  </g>
-  <circle cx="111.6" cy="245.4" r="5.3" fill="#1947D1"/>
-  <circle cx="151.8" cy="229" r="4.6" fill="#12161C"/>
-  <circle cx="209.2" cy="200.7" r="5.3" fill="#1947D1"/>
-  <text x="78" y="92" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="15" font-weight="600" letter-spacing="2.6">SYMBOLIC REGRESSION / JULIA</text>
-  <text x="278" y="222" fill="#12161C" font-family="Lato, Arial, sans-serif" font-size="62" font-weight="700">MySRCore.jl</text>
-  <text x="282" y="274" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="19" font-weight="600">JULIA SEARCH CORE  ·  MySR</text>
-  <text x="78" y="379" fill="#12161C" font-family="Lato, Arial, sans-serif" font-size="37" font-weight="700">Search the space of equations.</text>
-  <text x="80" y="423" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="22">Expression trees, dimensional contracts, and Pareto frontiers.</text>
-  <text x="884" y="96" fill="#1947D1" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="2">EVOLVE · VALIDATE · EXPLAIN</text>
-  <text x="884" y="218" fill="#12161C" font-family="DejaVu Sans Mono, monospace" font-size="21">Options(...)</text>
-  <text x="884" y="258" fill="#687384" font-family="DejaVu Sans Mono, monospace" font-size="17">tree -> loss -> Pareto</text>
-  <path d="M884 392C930 358 964 420 1004 389C1043 327 1110 346 1168 293" fill="none" stroke="#1947D1" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="884" cy="392" r="6" fill="#12161C"/><circle cx="964" cy="420" r="6" fill="#12161C"/><circle cx="1043" cy="327" r="6" fill="#12161C"/><circle cx="1168" cy="293" r="6" fill="#12161C"/>
-  <text x="884" y="534" fill="#687384" font-family="Lato, Arial, sans-serif" font-size="16" font-weight="600">HOF  ·  DIMENSIONS  ·  CONSTANTS</text>
+  <desc id="desc">MySRCore.jl product card with a distinct visual identity and English positioning.</desc>
+  <rect width="1280" height="640" fill="#FBF9FF"/>
+  <rect width="14" height="640" fill="#7B3FE4"/>
+  <rect x="840" y="42" width="372" height="556" rx="28" fill="#F1E9FF"/>
+  <text x="78" y="87" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.6">JULIA ENGINE / SYMBOLIC REGRESSION</text>
+  <path d="M104 185V240M104 240L68 276M104 240L140 276M68 276V308M140 276V308" fill="none" stroke="#7B3FE4" stroke-width="9" stroke-linecap="round"/>
+  <rect x="84" y="166" width="40" height="36" rx="11" fill="#F1E9FF" stroke="#7B3FE4" stroke-width="7"/>
+  <circle cx="68" cy="276" r="16" fill="#E1F8F3" stroke="#2BB7A9" stroke-width="7"/>
+  <circle cx="140" cy="276" r="16" fill="#E1F8F3" stroke="#2BB7A9" stroke-width="7"/>
+  <path d="M42 337C76 366 145 372 181 333" fill="none" stroke="#2BB7A9" stroke-width="8" stroke-linecap="round"/>
+  <text x="382" y="211" fill="#211A32" font-family="Lato, Arial, sans-serif" font-size="62" font-weight="700">MySRCore.jl</text>
+  <text x="386" y="263" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="19" font-weight="700">JULIA SEARCH CORE</text>
+  <text x="78" y="379" fill="#211A32" font-family="Lato, Arial, sans-serif" font-size="37" font-weight="700">Search the space of equations.</text>
+  <text x="80" y="423" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="22">Expression trees, constraints, and Pareto frontiers.</text>
+  <rect x="78" y="504" width="160" height="36" rx="18" fill="#FFFFFF" stroke="#DED0F7"/>
+  <text x="88" y="527" fill="#7B3FE4" font-family="Lato, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1">EXPRESSION TREES</text>
+  <rect x="254" y="504" width="160" height="36" rx="18" fill="#FFFFFF" stroke="#DED0F7"/>
+  <text x="264" y="527" fill="#7B3FE4" font-family="Lato, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1">DIMENSIONS</text>
+  <rect x="430" y="504" width="160" height="36" rx="18" fill="#FFFFFF" stroke="#DED0F7"/>
+  <text x="440" y="527" fill="#7B3FE4" font-family="Lato, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="1">HOF</text>
+  <text x="884" y="96" fill="#7B3FE4" font-family="Lato, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="2">CORE ENGINE</text>
+  <text x="884" y="218" fill="#211A32" font-family="DejaVu Sans Mono, monospace" font-size="21">Options(...)</text>
+  <text x="884" y="258" fill="#6B6680" font-family="DejaVu Sans Mono, monospace" font-size="17">tree -&gt; loss -&gt; Pareto</text>
+  <path d="M884 392C930 358 964 420 1004 389C1043 327 1110 346 1168 293" fill="none" stroke="#2BB7A9" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="884" cy="392" r="7" fill="#7B3FE4"/>
+  <circle cx="964" cy="420" r="7" fill="#7B3FE4"/>
+  <circle cx="1043" cy="327" r="7" fill="#7B3FE4"/>
+  <circle cx="1168" cy="293" r="7" fill="#7B3FE4"/>
+  <text x="884" y="536" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="1.4">TREES  ·  CHECKS  ·  FRONTIERS</text>
 </svg>

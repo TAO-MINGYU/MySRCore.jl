@@ -1,0 +1,12 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-labelledby="title desc">
+  <title id="title">MySRCore.jl Pareto frontier icon</title>
+  <desc id="desc">A frontier connects loss and complexity during search.</desc>
+  <rect x="6" y="6" width="188" height="188" rx="38" fill="#FBF9FF"/>
+  <path d="M30 161H174M42 174V34" stroke="#7B3FE4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M50 143C73 132 78 116 96 107C113 98 115 79 132 68C144 60 153 48 168 37" fill="none" stroke="#2BB7A9" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="50" cy="143" r="8" fill="#7B3FE4"/>
+  <circle cx="96" cy="107" r="8" fill="#7B3FE4"/>
+  <circle cx="132" cy="68" r="8" fill="#7B3FE4"/>
+  <circle cx="168" cy="37" r="8" fill="#7B3FE4"/>
+</svg>

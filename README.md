@@ -102,6 +102,14 @@ The figure shows the shape of a low-level result: expression representations
 remain inspectable while loss and complexity expose the Pareto tradeoff. The
 values are synthetic and are not benchmark evidence.
 
+<div align="center">
+  <img src="assets/mysrcore-icon-tree.svg" alt="MySRCore expression tree" width="108">
+  <img src="assets/mysrcore-icon-pareto.svg" alt="MySRCore Pareto frontier" width="108">
+  <img src="assets/mysrcore-icon-dimensions.svg" alt="MySRCore dimensional contract" width="108">
+</div>
+
+<p align="center"><sub>Expression trees&nbsp;&nbsp;·&nbsp;&nbsp;Pareto search&nbsp;&nbsp;·&nbsp;&nbsp;Dimensional contracts</sub></p>
+
 ## Capabilities
 
 | Area | What MySRCore provides |

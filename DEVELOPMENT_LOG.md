@@ -783,3 +783,10 @@
 - 质量修复：移除无效语义缓存实现，补充输入特征/量纲/数据集上下文元数据，启用温度化
   proposal 权重，修复常数优化预算边界，并避免 beam 排序重复计算 validation cost。
 - 收口：worktree 分支已提交本次实现；不合并、不 push、不删除 worktree，等待发布流程完成。
+
+## 2026-09-27 — Separate MySRCore visual identity assets
+
+- Updated the public presentation layer only: MySRCore.jl now uses a violet/mint expression-tree identity for the Julia search core.
+- Added `mysrcore-mark.svg`, `mysrcore-lockup.svg`, three reusable English icons (`mysrcore-icon-tree.svg`, `mysrcore-icon-pareto.svg`, `mysrcore-icon-dimensions.svg`), refreshed social/result previews, and a color-coded architecture diagram.
+- Added the icon row to the README and documented the palette and asset roles in `assets/README.md`.
+- Removed the unused duplicate `mysr-mark.svg` asset from this repository so the public asset directory no longer presents the frontend mark as the core logo; no runtime or API contract changed.
