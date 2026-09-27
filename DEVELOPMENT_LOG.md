@@ -6,6 +6,15 @@
 
 后续重大变更至少记录：日期、变更类型、影响范围、原因、修改路径、结果/验证证据、遗留风险和后续行动。
 
+## 2026-09-27 - Refresh public GitHub page entry points
+
+- 变更类型：README 页面信息架构、版本说明与公开路径清理。
+- 影响范围：`README.md`。
+- Decision：在 Overview 后增加 MySRCore/MySR 入口对照；明确 MySRCore 1.3.0 是直接 Julia release，而 MySR 1.1.3 当前通过 JuliaPkg pin MySRCore v1.1.3；开发目录改为公开可复现的 sibling-checkout 示例。
+- 结果：页面首屏同时表达 backend identity 与 frontend integration，Status 与 `Project.toml`/changelog 对齐。
+- 验证：README 图片路径存在、SVG XML 解析通过、无内部路径、`git diff --check` 通过；未修改 Julia 源码或包契约。
+- 遗留风险：GitHub 实际浅色/深色/窄屏渲染和 release 页面文案仍需发布前检查。
+
 ## 2026-09-22 - 建立 MySRCore 第一阶段体检与改良思考文档
 
 - 变更类型：设计审查与后续开发入口。

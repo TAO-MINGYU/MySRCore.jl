@@ -23,6 +23,15 @@ MySRCore.jl is the Julia search core behind [MySR](https://github.com/TAO-MINGYU
 
 The package keeps the low-level Julia interface available for direct research use while giving MySR a stable backend boundary. Python users normally encounter MySRCore through MySR and Julia users can call the core directly.
 
+> **Current release:** MySRCore `1.3.0` is the current direct Julia release.
+> MySR `1.1.3` currently pins the compatible MySRCore `v1.1.3` through
+> JuliaPkg; the two release lines are maintained independently.
+
+| Choose MySRCore.jl when you want | Choose MySR when you want |
+| --- | --- |
+| Direct Julia control over search and expression internals | A Python and scikit-learn-style workflow |
+| HOF/Pareto results, dimensions, and custom options | Data preparation, prediction replay, and exports |
+
 ## Why MySRCore?
 
 - **A focused search engine**: configure operators, populations, evolution budgets, and parallelism at the Julia layer.
@@ -181,7 +190,7 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 For joint frontend/backend development, keep the repositories as siblings:
 
 ```text
-/home/taomingyu/MySR_Dev/
+MySR/
 |-- MySR/          # Python frontend
 `-- MySRCore.jl/  # Julia search core
 ```
@@ -190,7 +199,7 @@ The Python frontend can temporarily point JuliaPkg at this local checkout during
 
 ## Status
 
-MySRCore.jl 1.1.3 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
+MySRCore.jl 1.3.0 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
 
 ## License
 
