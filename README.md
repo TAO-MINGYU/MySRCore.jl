@@ -201,6 +201,12 @@ The Python frontend can temporarily point JuliaPkg at this local checkout during
 
 MySRCore.jl 1.3.0 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
 
+## Citation
+
+For software citations, see [CITATION.md](CITATION.md). MySRCore retains
+upstream attribution and documents the independent package changes in
+[NOTICE](NOTICE), [VENDORING.md](VENDORING.md), and [FORK_CHANGES.md](FORK_CHANGES.md).
+
 ## License
 
 MySRCore.jl is released under the [Apache License 2.0](https://github.com/TAO-MINGYU/MySRCore.jl/blob/main/LICENSE). Upstream copyright and attribution are retained.

@@ -6,6 +6,14 @@
 
 后续重大变更至少记录：日期、变更类型、影响范围、原因、修改路径、结果/验证证据、遗留风险和后续行动。
 
+## 2026-09-27 - Refresh citation metadata for the 1.3.0 release
+
+- 变更类型：发布元数据与 README 导航补充。
+- 影响范围：`CITATION.md`、`README.md`。
+- Decision：将软件引用示例版本从历史 1.1.0 更新为当前 1.3.0，并在 README 提供引用入口；保留上游 provenance 文件链接。
+- 验证：引用版本与 `Project.toml`/changelog/tag `v1.3.0` 对齐；未修改 Julia 源码或包契约。
+- 遗留风险：正式发布前仍需复核 BibTeX 的作者和上游引用措辞。
+
 ## 2026-09-27 - Refresh public GitHub page entry points
 
 - 变更类型：README 页面信息架构、版本说明与公开路径清理。
