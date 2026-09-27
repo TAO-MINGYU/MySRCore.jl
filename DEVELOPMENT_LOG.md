@@ -6,6 +6,14 @@
 
 后续重大变更至少记录：日期、变更类型、影响范围、原因、修改路径、结果/验证证据、遗留风险和后续行动。
 
+## 2026-09-27 - Add GitHub social-preview assets
+
+- 变更类型：页面展示素材。
+- 影响范围：`assets/social-preview.png`、`assets/social-preview.svg`、`assets/README.md`。
+- Decision：使用现有 MySR family mark、graphite/cobalt 配色和无性能承诺的方程/搜索示意，制作 1280×640 PNG 与可编辑 SVG；保留素材说明。
+- 验证：PNG 尺寸/模式、SVG XML 和视觉检查通过；素材不包含 benchmark 结果或运行时数据。
+- 遗留风险：GitHub social-preview 需要在网页设置中手动上传；REST API 没有可用 endpoint。
+
 ## 2026-09-27 - Refresh citation metadata for the 1.3.0 release
 
 - 变更类型：发布元数据与 README 导航补充。
