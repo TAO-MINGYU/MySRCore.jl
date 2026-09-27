@@ -1,18 +1,18 @@
 # Citing
 
-When citing MySRCore.jl itself, identify the software version and repository:
+When citing MySRCore itself, identify the software version and repository:
 
 ```bibtex
 @misc{taoMySRCore2026,
-    title = {MySRCore.jl: Julia algorithm core for MySR},
+    title = {MySRCore: search core for MySR},
     author = {Tao, Mingyu},
     year = {2026},
     version = {1.3.0},
-    url = {https://github.com/TAO-MINGYU/MySRCore.jl},
+    url = {https://github.com/TAO-MINGYU/MySRCore},
 }
 ```
 
-MySRCore.jl retains substantial code from SymbolicRegression.jl. Please also cite
+MySRCore retains substantial code from SymbolicRegression.jl. Please also cite
 the upstream PySR and SymbolicRegression.jl work with the following entry:
 
 ```bibtex

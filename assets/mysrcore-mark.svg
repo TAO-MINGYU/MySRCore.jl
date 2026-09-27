@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title desc">
-  <title id="title">MySRCore.jl expression-tree mark</title>
-  <desc id="desc">A rooted expression tree represents Julia search, constraints, and Pareto exploration.</desc>
+  <title id="title">MySRCore expression-tree mark</title>
+  <desc id="desc">A rooted expression tree represents search, constraints, and Pareto exploration.</desc>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M120 39V78M120 78L70 124M120 78L170 124M70 124V162M170 124V162" stroke="#7B3FE4" stroke-width="9"/>
     <path d="M45 190C82 222 164 229 205 183" stroke="#2BB7A9" stroke-width="8"/>

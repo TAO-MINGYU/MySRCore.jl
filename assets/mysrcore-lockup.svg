@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 240" role="img" aria-labelledby="title desc">
-  <title id="title">MySRCore.jl Julia search core</title>
-  <desc id="desc">MySRCore.jl wordmark with a rooted expression tree and search frontier.</desc>
+  <title id="title">MySRCore search core</title>
+  <desc id="desc">MySRCore wordmark with a rooted expression tree and search frontier.</desc>
   <g transform="translate(20 20) scale(.83)">
     <g fill="none" stroke-linecap="round" stroke-linejoin="round">
       <path d="M120 39V78M120 78L70 124M120 78L170 124M70 124V162M170 124V162" stroke="#7B3FE4" stroke-width="9"/>
@@ -13,6 +13,6 @@
     <rect x="51" y="161" width="38" height="28" rx="9" fill="#F1E9FF" stroke="#7B3FE4" stroke-width="6"/>
     <rect x="151" y="161" width="38" height="28" rx="9" fill="#F1E9FF" stroke="#7B3FE4" stroke-width="6"/>
   </g>
-  <text x="235" y="123" fill="#211A32" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="1">MySRCore.jl</text>
-  <text x="241" y="165" fill="#6B6680" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="21" font-weight="600" letter-spacing="5">JULIA SEARCH CORE</text>
+  <text x="235" y="123" fill="#211A32" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="1">MySRCore</text>
+  <text x="241" y="165" fill="#6B6680" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="21" font-weight="600" letter-spacing="5">SEARCH CORE</text>
 </svg>

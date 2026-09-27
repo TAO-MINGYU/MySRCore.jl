@@ -17,7 +17,7 @@
     <rect x="385" y="78" width="330" height="150" rx="18" fill="#FFFFFF" stroke="#7B3FE4" stroke-width="3"/>
     <rect x="385" y="78" width="8" height="150" rx="4" fill="#7B3FE4"/>
     <text x="413" y="126" fill="#7B3FE4" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="2">PACKAGE BOUNDARY</text>
-    <text x="413" y="169" fill="#211A32" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="700">MySRCore.jl</text>
+    <text x="413" y="169" fill="#211A32" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="30" font-weight="700">MySRCore</text>
     <text x="413" y="201" fill="#6B6680" font-family="Avenir Next, Inter, Helvetica, Arial, sans-serif" font-size="16">Stable package identity</text>
     <rect x="780" y="78" width="285" height="150" rx="18" fill="#FFFFFF" stroke="#7B3FE4" stroke-width="3"/>
     <rect x="780" y="78" width="8" height="150" rx="4" fill="#7B3FE4"/>

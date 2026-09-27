@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-labelledby="title desc">
-  <title id="title">MySRCore.jl Pareto frontier icon</title>
+  <title id="title">MySRCore Pareto frontier icon</title>
   <desc id="desc">A frontier connects loss and complexity during search.</desc>
   <rect x="6" y="6" width="188" height="188" rx="38" fill="#FBF9FF"/>
   <path d="M30 161H174M42 174V34" stroke="#7B3FE4" stroke-width="7" stroke-linecap="round"/>

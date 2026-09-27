@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="assets/mysrcore-lockup.svg" alt="MySRCore.jl" width="600">
-  <p><strong>A Julia search core for interpretable symbolic regression.</strong><br>
+  <img src="assets/mysrcore-lockup.svg" alt="MySRCore" width="600">
+  <p><strong>A search core for interpretable symbolic regression.</strong><br>
   Evolutionary expression search, dimensional contracts, and Pareto frontiers for MySR.</p>
   <p>
-    <a href="https://github.com/TAO-MINGYU/MySRCore.jl/releases"><img src="https://img.shields.io/github/v/release/TAO-MINGYU/MySRCore.jl?display_name=tag&amp;style=flat-square&amp;label=release" alt="Latest release"></a>
-    <a href="https://github.com/TAO-MINGYU/MySRCore.jl/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TAO-MINGYU/MySRCore.jl?style=flat-square" alt="Apache 2.0 license"></a>
-    <a href="https://github.com/TAO-MINGYU/MySRCore.jl"><img src="https://img.shields.io/github/stars/TAO-MINGYU/MySRCore.jl?style=flat-square&amp;label=stars" alt="GitHub stars"></a>
+    <a href="https://github.com/TAO-MINGYU/MySRCore/releases"><img src="https://img.shields.io/github/v/release/TAO-MINGYU/MySRCore?display_name=tag&amp;style=flat-square&amp;label=release" alt="Latest release"></a>
+    <a href="https://github.com/TAO-MINGYU/MySRCore/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TAO-MINGYU/MySRCore?style=flat-square" alt="Apache 2.0 license"></a>
+    <a href="https://github.com/TAO-MINGYU/MySRCore"><img src="https://img.shields.io/github/stars/TAO-MINGYU/MySRCore?style=flat-square&amp;label=stars" alt="GitHub stars"></a>
   </p>
   <p>
     <a href="#quickstart">Quickstart</a>&nbsp;&middot;&nbsp;
@@ -16,21 +16,21 @@
   </p>
 </div>
 
-> MySRCore.jl is an independent fork derived from SymbolicRegression.jl. It is not an official SymbolicRegression.jl release.
+> MySRCore is an independent fork derived from SymbolicRegression.jl. It is not an official SymbolicRegression.jl release.
 
 ## Overview
 
-MySRCore.jl is the Julia search core behind [MySR](https://github.com/TAO-MINGYU/MySR), a general-purpose symbolic regression project. It searches over mathematical expressions, evaluates their loss, optimizes constants, applies structural and dimensional checks, and maintains an inspectable Hall of Fame (HOF) / Pareto frontier.
+MySRCore is the search core behind [MySR](https://github.com/TAO-MINGYU/MySR), a general-purpose symbolic regression project. It searches over mathematical expressions, evaluates their loss, optimizes constants, applies structural and dimensional checks, and maintains an inspectable Hall of Fame (HOF) / Pareto frontier.
 
-The package keeps the low-level Julia interface available for direct research use while giving MySR a stable backend boundary. Python users normally encounter MySRCore through MySR and Julia users can call the core directly.
+The package keeps a low-level interface available for direct research use while giving MySR a stable backend boundary. Python users normally encounter MySRCore through MySR, while direct callers can use the core API itself.
 
 > **Current release:** MySRCore `1.3.0` is the current direct Julia release.
 > MySR `1.1.3` currently pins the compatible MySRCore `v1.1.3` through
 > JuliaPkg; the two release lines are maintained independently.
 
-| Choose MySRCore.jl when you want | Choose MySR when you want |
+| Choose MySRCore when you want | Choose MySR when you want |
 | --- | --- |
-| Direct Julia control over search and expression internals | A Python and scikit-learn-style workflow |
+| Direct control over search and expression internals | A Python and scikit-learn-style workflow |
 | HOF/Pareto results, dimensions, and custom options | Data preparation, prediction replay, and exports |
 
 ## Why MySRCore?
@@ -46,7 +46,7 @@ Install the pinned release directly from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore.jl", rev="v1.3.0")
+Pkg.add(url="https://github.com/TAO-MINGYU/MySRCore", rev="v1.3.0")
 using MySRCore
 ```
 
@@ -123,7 +123,7 @@ values are synthetic and are not benchmark evidence.
 | Surrogate-assisted evaluation | Optional local KNN gating of expensive candidate evaluations; disabled by default, trained only from true evaluations, and synchronized between populations through immutable round snapshots. |
 | Dimensional analysis | Static dimension inference and hard candidate checks for constrained formula types. |
 | Initialization | User guesses and optional RNN-GPSR proposal callbacks before formal search. |
-| Julia integration | Direct Julia API plus compatibility with the MySR Python frontend through JuliaPkg. |
+| Core integration | Direct API plus compatibility with the MySR Python frontend through JuliaPkg. |
 
 When `rnn_gpsr_seeding=true`, the callback seeding stage uses an independent
 lightweight GPSR budget: `rnn_gpsr_populations=1`,
@@ -173,9 +173,9 @@ The two repositories have deliberately separate responsibilities:
 | Repository | Public role |
 | --- | --- |
 | [MySR](https://github.com/TAO-MINGYU/MySR) | Python frontend, data preparation, feature proposals, prediction replay, and exports. |
-| **MySRCore.jl** | Julia expression search, evaluation, dimensional legality, constant optimization, and HOF maintenance. |
+| **MySRCore** | Expression search, evaluation, dimensional legality, constant optimization, and HOF maintenance. |
 
-Use MySR when you want a Python and scikit-learn style workflow. Use MySRCore directly when you need low-level Julia control, custom search integration, or direct access to expression and search internals.
+Use MySR when you want a Python and scikit-learn style workflow. Use MySRCore directly when you need low-level search control, custom integration, or direct access to expression and search internals.
 
 The Python bridge forwards the canonical `populations` and `population_size`
 fields and exposes the optional `child_refinement`, `epsilon`, and
@@ -192,17 +192,17 @@ MySRCore keeps the retained SymbolicRegression.jl engine behind the package iden
 
 ## Relationship to SymbolicRegression.jl
 
-MySRCore is derived from [SymbolicRegression.jl](https://github.com/astroautomata/SymbolicRegression.jl), version 2.0.0-beta.8 at commit `35d45fd625dc8df0067df60c72b615d83518ed44`. Upstream attribution and the independent changes are recorded in [NOTICE](https://github.com/TAO-MINGYU/MySRCore.jl/blob/main/NOTICE), [VENDORING.md](https://github.com/TAO-MINGYU/MySRCore.jl/blob/main/VENDORING.md), and [FORK_CHANGES.md](https://github.com/TAO-MINGYU/MySRCore.jl/blob/main/FORK_CHANGES.md).
+MySRCore is derived from [SymbolicRegression.jl](https://github.com/astroautomata/SymbolicRegression.jl), version 2.0.0-beta.8 at commit `35d45fd625dc8df0067df60c72b615d83518ed44`. Upstream attribution and the independent changes are recorded in [NOTICE](https://github.com/TAO-MINGYU/MySRCore/blob/main/NOTICE), [VENDORING.md](https://github.com/TAO-MINGYU/MySRCore/blob/main/VENDORING.md), and [FORK_CHANGES.md](https://github.com/TAO-MINGYU/MySRCore/blob/main/FORK_CHANGES.md).
 
 MySRCore preserves the upstream algorithmic lineage while maintaining its own package identity, release version, dimensional contracts, and MySR bridge. It does not represent the upstream project's official release channel.
 
 ## Development
 
-Clone the backend and load it as a Julia development package:
+Clone the backend and load it as a development package:
 
 ```bash
-git clone https://github.com/TAO-MINGYU/MySRCore.jl.git
-cd MySRCore.jl
+git clone https://github.com/TAO-MINGYU/MySRCore.git
+cd MySRCore
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
@@ -211,14 +211,14 @@ For joint frontend/backend development, keep the repositories as siblings:
 ```text
 MySR/
 |-- MySR/          # Python frontend
-`-- MySRCore.jl/  # Julia search core
+`-- MySRCore/  # search core
 ```
 
 The Python frontend can temporarily point JuliaPkg at this local checkout during development. The released MySR configuration remains pinned to the published MySRCore tag.
 
 ## Status
 
-MySRCore.jl 1.3.0 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
+MySRCore 1.3.0 is research software under active development. The core search path and package-contract tests are maintained; dimensional workflows, feature engineering, and RNN-GPSR should still be evaluated against the intended dataset and search budget before being used for scientific conclusions.
 
 ## Citation
 
@@ -228,4 +228,4 @@ upstream attribution and documents the independent package changes in
 
 ## License
 
-MySRCore.jl is released under the [Apache License 2.0](https://github.com/TAO-MINGYU/MySRCore.jl/blob/main/LICENSE). Upstream copyright and attribution are retained.
+MySRCore is released under the [Apache License 2.0](https://github.com/TAO-MINGYU/MySRCore/blob/main/LICENSE). Upstream copyright and attribution are retained.

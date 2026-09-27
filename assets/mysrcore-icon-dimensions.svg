@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-labelledby="title desc">
-  <title id="title">MySRCore.jl dimensional contract icon</title>
+  <title id="title">MySRCore dimensional contract icon</title>
   <desc id="desc">Linked unit axes represent dimensional legality checks.</desc>
   <rect x="6" y="6" width="188" height="188" rx="38" fill="#FBF9FF"/>
   <rect x="30" y="34" width="70" height="70" rx="16" fill="#F1E9FF" stroke="#7B3FE4" stroke-width="7"/>

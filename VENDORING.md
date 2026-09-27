@@ -1,6 +1,6 @@
 # Upstream source baseline
 
-MySRCore.jl is an independent derivative of
+MySRCore is an independent derivative of
 [SymbolicRegression.jl](https://github.com/astroautomata/SymbolicRegression.jl).
 
 | Field | Value |

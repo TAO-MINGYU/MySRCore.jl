@@ -1,18 +1,18 @@
 <?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
-  <title id="title">MySRCore.jl social preview</title>
-  <desc id="desc">MySRCore.jl product card with a distinct visual identity and English positioning.</desc>
+  <title id="title">MySRCore social preview</title>
+  <desc id="desc">MySRCore product card with a distinct visual identity and English positioning.</desc>
   <rect width="1280" height="640" fill="#FBF9FF"/>
   <rect width="14" height="640" fill="#7B3FE4"/>
   <rect x="840" y="42" width="372" height="556" rx="28" fill="#F1E9FF"/>
-  <text x="78" y="87" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.6">JULIA ENGINE / SYMBOLIC REGRESSION</text>
+  <text x="78" y="87" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.6">SEARCH ENGINE / SYMBOLIC REGRESSION</text>
   <path d="M104 185V240M104 240L68 276M104 240L140 276M68 276V308M140 276V308" fill="none" stroke="#7B3FE4" stroke-width="9" stroke-linecap="round"/>
   <rect x="84" y="166" width="40" height="36" rx="11" fill="#F1E9FF" stroke="#7B3FE4" stroke-width="7"/>
   <circle cx="68" cy="276" r="16" fill="#E1F8F3" stroke="#2BB7A9" stroke-width="7"/>
   <circle cx="140" cy="276" r="16" fill="#E1F8F3" stroke="#2BB7A9" stroke-width="7"/>
   <path d="M42 337C76 366 145 372 181 333" fill="none" stroke="#2BB7A9" stroke-width="8" stroke-linecap="round"/>
-  <text x="382" y="211" fill="#211A32" font-family="Lato, Arial, sans-serif" font-size="62" font-weight="700">MySRCore.jl</text>
-  <text x="386" y="263" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="19" font-weight="700">JULIA SEARCH CORE</text>
+  <text x="382" y="211" fill="#211A32" font-family="Lato, Arial, sans-serif" font-size="62" font-weight="700">MySRCore</text>
+  <text x="386" y="263" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="19" font-weight="700">SEARCH CORE</text>
   <text x="78" y="379" fill="#211A32" font-family="Lato, Arial, sans-serif" font-size="37" font-weight="700">Search the space of equations.</text>
   <text x="80" y="423" fill="#6B6680" font-family="Lato, Arial, sans-serif" font-size="22">Expression trees, constraints, and Pareto frontiers.</text>
   <rect x="78" y="504" width="160" height="36" rx="18" fill="#FFFFFF" stroke="#DED0F7"/>

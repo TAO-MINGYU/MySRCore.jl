@@ -1,6 +1,6 @@
 # MySRCore page assets
 
-- `mysrcore-mark.svg` and `mysrcore-lockup.svg` are the MySRCore.jl Julia search core identity assets.
+- `mysrcore-mark.svg` and `mysrcore-lockup.svg` are the MySRCore search core identity assets.
 - `mysrcore-icon-tree.svg`, `mysrcore-icon-pareto.svg`, and `mysrcore-icon-dimensions.svg` are the reusable backend icons shown in the README.
 - `social-preview.png` is a 1280×640 GitHub social-preview candidate.
 - `social-preview.svg` is the editable vector source for that preview.

@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-labelledby="title desc">
-  <title id="title">MySRCore.jl expression-tree icon</title>
+  <title id="title">MySRCore expression-tree icon</title>
   <desc id="desc">A rooted tree represents compositional expression search.</desc>
   <rect x="6" y="6" width="188" height="188" rx="38" fill="#FBF9FF"/>
   <path d="M100 37V78M100 78L55 118M100 78L145 118M55 118V153M145 118V153" fill="none" stroke="#7B3FE4" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
